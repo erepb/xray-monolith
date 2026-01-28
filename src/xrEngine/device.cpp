@@ -581,8 +581,8 @@ void CRenderDevice::Run()
 	thread_spawn(mt_DiscordThread, "X-RAY Discord thread", 0, 0);
 	// Message cycle
 	seqAppStart.Process(rp_AppStart);
-
 	m_pRender->ClearTarget();
+	SetForegroundWindow(m_hWnd);
 	message_loop();
 	seqAppEnd.Process(rp_AppEnd);
 	// Stop Balance-Thread
