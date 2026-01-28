@@ -587,7 +587,6 @@ void Startup()
 	}
 
 	// Initialize APP
-	ShowWindow(Device.m_hWnd, SW_SHOWNORMAL);
 	Device.Create();
 
 	LALib.OnCreate();

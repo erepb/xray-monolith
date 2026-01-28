@@ -537,6 +537,9 @@ public:
 		u32 prev_mode = g_screenmode;
 		CCC_Token::Execute(args);
 
+		if (!Device.b_is_Ready)
+			return;
+
 		if ((prev_mode != g_screenmode))
 		{
 			// TODO: If you enable the debug layer for DX11 and switch between fullscreen and windowed a few times,
@@ -569,15 +572,25 @@ public:
 				Device.Reset();
 			}
 
-			if (g_screenmode == 0 || g_screenmode == 1)
+			if (!reset_required)
 			{
-				u32 w, h;
-				GetMonitorResolution(w, h);
-				SetWindowLongPtr(Device.m_hWnd, GWL_STYLE, WS_VISIBLE | WS_POPUP);
-				SetWindowPos(Device.m_hWnd, HWND_TOP, 0, 0, w, h, SWP_FRAMECHANGED);
+				u32 monW, monH;
+				GetMonitorResolution(monW, monH);
+				DWORD style = g_screenmode == 0 ? WS_OVERLAPPEDWINDOW : WS_POPUP;
+				SetWindowLongPtr(Device.m_hWnd, GWL_STYLE, WS_VISIBLE | style);
 
 				if (g_screenmode == 0)
-					SetWindowLongPtr(Device.m_hWnd, GWL_STYLE, WS_VISIBLE | WS_OVERLAPPEDWINDOW);
+				{
+					LONG w = psCurrentVidMode[0];
+					LONG h = psCurrentVidMode[1];
+					int x = (LONG(monW) - w) / 2;
+					int y = (LONG(monH) - h) / 2;
+					SetWindowPos(Device.m_hWnd, HWND_TOP, x, y, w, h, SWP_FRAMECHANGED);
+				}
+				else
+				{
+					SetWindowPos(Device.m_hWnd, HWND_TOP, 0, 0, monW, monH, SWP_FRAMECHANGED);
+				}
 			}
 		}
 
