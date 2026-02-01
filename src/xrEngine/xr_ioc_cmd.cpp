@@ -566,34 +566,8 @@ public:
 			// but the fixes make no sense and contradicts MSDN, and this isn't a major priority since ResizeBuffers is called
 			// immediately after (before our Present call) so it works, just so stupid
 
-			bool windowed_to_fullscreen = ((prev_mode == 0) || (prev_mode == 1)) && (g_screenmode == 2);
-			bool fullscreen_to_windowed = (prev_mode == 2) && ((g_screenmode == 0) || (g_screenmode == 1));
-			bool reset_required		    = windowed_to_fullscreen || fullscreen_to_windowed;
-			if (Device.b_is_Ready && reset_required) {
+			if (Device.b_is_Ready) {
 				Device.Reset();
-			}
-
-			if (!reset_required)
-			{
-				u32 monW, monH;
-				int monX, monY;
-				GetMonitorResolution(monW, monH);
-				GetMonitorPosition(monX, monY);
-				DWORD style = g_screenmode == 0 ? WS_OVERLAPPEDWINDOW : WS_POPUP;
-				SetWindowLongPtr(Device.m_hWnd, GWL_STYLE, WS_VISIBLE | style);
-
-				if (g_screenmode == 0)
-				{
-					LONG w = psCurrentVidMode[0];
-					LONG h = psCurrentVidMode[1];
-					int x = monX + (LONG(monW) - w) / 2;
-					int y = monY + (LONG(monH) - h) / 2;
-					SetWindowPos(Device.m_hWnd, HWND_TOP, x, y, w, h, SWP_FRAMECHANGED);
-				}
-				else
-				{
-					SetWindowPos(Device.m_hWnd, HWND_TOP, monX, monY, monW, monH, SWP_FRAMECHANGED);
-				}
 			}
 		}
 
