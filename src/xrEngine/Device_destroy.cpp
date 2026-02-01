@@ -113,6 +113,8 @@ void CRenderDevice::Reset(bool precache)
 	ShowCursor(FALSE);
 	RECT winRect;
 	GetClientRect(m_hWnd, &winRect);
+	clientWidth = winRect.right;
+	clientHeight = winRect.bottom;
 	MapWindowPoints(m_hWnd, nullptr, reinterpret_cast<LPPOINT>(&winRect), 2);
 	ClipCursor(&winRect);
 #endif
