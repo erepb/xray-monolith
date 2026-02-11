@@ -912,6 +912,8 @@ void CKinematicsAnimated::LL_BuldBoneMatrixDequatize(const CBoneData* bd, u8 cha
 		//keys.blend_factors[channel][b_count]	=  B->blendAmount;
 		keys.blends[channel][b_count] = B;
 		CMotion& M = *LL_GetMotion(B->motionID, SelfID);
+		if (!M._keysR.size())
+			continue;
 		Dequantize(*D, *B, M);
 		QR2Quat(M._keysR[0], BK[channel][b_count].Q);
 		if (M.test_flag(flTKeyPresent))
