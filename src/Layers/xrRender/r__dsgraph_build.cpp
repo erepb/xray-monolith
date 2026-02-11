@@ -36,6 +36,7 @@ ICF float CalcSSA(float& distSQ, Fvector& C, float R)
 void R_dsgraph_structure::r_dsgraph_insert_dynamic(dxRender_Visual* pVisual, Fvector& Center)
 {
 	CRender& RI = RImplementation;
+	if (!pVisual->shader._get()) return;
 	auto sh = pVisual->shader->E[0]._get();
 #if defined(USE_DX11) //  Redotix99: for 3D Shader Based Scopes 
 	if (nullptr != sh && sh->flags.iScopeLense > 0) {
