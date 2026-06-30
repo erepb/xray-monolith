@@ -1,6 +1,8 @@
 #include "StdAfx.h"
 #include "UITabButton.h"
 #include "UIStatic.h"
+#include "UIFrameLineWnd.h"
+#include "UITextureMaster.h"
 
 CUITabButton::CUITabButton()
 {
@@ -49,14 +51,50 @@ void CUITabButton::SendMessage(CUIWindow* pWnd, s16 msg, void* pData)
 	}
 }
 
+float CUITabButton::CapTexelsToUI(float texels) const
+{
+	CUIFrameLineWnd* fl = m_back_frameline ? m_back_frameline->Get(S_Enabled) : NULL;
+	if (fl && fl->GetCapScaled())
+	{
+		const float tex_h = fl->GetTextureHeight();
+		if (tex_h > 0.0f)
+			return GetWndSize().y * texels / tex_h;
+	}
+	return -1.0f;
+}
+
+float CUITabButton::FramelineCapWidth() const
+{
+	CUIFrameLineWnd* fl = m_back_frameline ? m_back_frameline->Get(S_Enabled) : NULL;
+	return fl ? CapTexelsToUI(fl->GetBeginCapWidth()) : -1.0f;
+}
+
+float CUITabButton::EndCapWidth() const
+{
+	const float cap = FramelineCapWidth();
+	if (cap >= 0.0f)
+		return cap;
+	return m_overlap;
+}
+
 float CUITabButton::CapWidthUI() const
 {
+	const float cap = FramelineCapWidth();
+	if (cap >= 0.0f)
+		return cap;
 	const Frect art = ArtRegion();
 	return (art.width() > 0.0f) ? art.height() * GetWndSize().x / art.width() : 0.0f;
 }
 
 float CUITabButton::CapOverlapUI() const
 {
+	CUIFrameLineWnd* fl = m_back_frameline ? m_back_frameline->Get(S_Enabled) : NULL;
+	if (fl)
+	{
+		const float ov = CapTexelsToUI(fl->GetCapOverlap());
+		if (ov >= 0.0f)
+			return ov;
+	}
 	return CapWidthUI();
 }
 
@@ -83,6 +121,8 @@ CUITabButton* CUITabButton::Clone(const Fvector2& pos, const Fvector2& size) con
 {
 	CUITabButton* b = xr_new<CUITabButton>();
 	b->SetAutoDelete(true);
+	b->m_frameline_mode = m_frameline_mode;
+	b->m_frameline_cap_scaled = m_frameline_cap_scaled;
 	b->InitButton(pos, size);
 	if (m_art_base.size())
 		b->InitTexture(m_art_base.c_str());

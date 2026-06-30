@@ -39,16 +39,19 @@ public:
 
 	// Dynamic, id-aware tab add (the legacy 4-arg AddItem leaves m_btn_id empty). Inserts after the
 	// tab named by after_id (NULL/""/unknown -> appended); geometry and art copy the strip's own
-	// tabs, so it fails on a control that has no tabs yet. Tab width is fixed, so a too-long caption
-	// may clip. Call RecalcScroll after.
+	// tabs, so it fails on a control that has no tabs yet. A too-long caption widens the tab on
+	// frame_mode strips only (static strips keep the XML width). Call RecalcScroll after.
 	bool AddTab(LPCSTR id, LPCSTR caption, LPCSTR after_id);
 	// Remove the AddTab-added tabs, restoring the XML positions. Call RecalcScroll afterwards.
 	void RemoveDynamicTabs();
+
+	void ApplyAutoLayout(float margin);
 
 	void RecalcScroll();
 	void ScrollBy(float dx);
 	void EnsureVisible(const shared_str& id);
 	bool CanScroll() const;
+	void SetScrollArt(LPCSTR base);
 
 	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData);
 	virtual void Enable(bool status);

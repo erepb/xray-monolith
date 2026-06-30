@@ -2,6 +2,7 @@
 #include "UITabScrollArrows.h"
 #include "UIStatic.h"
 #include "UILines.h"
+#include "UITextureMaster.h"
 
 bool CUIScrollArrowButton::OnMouseDown(int mouse_btn)
 {
@@ -18,6 +19,7 @@ static shared_str StateArt(const shared_str& base, int ib_state)
 	LPCSTR suffix;
 	switch (ib_state)
 	{
+	case S_Disabled:    suffix = "_d"; break;
 	case S_Touched:     suffix = "_t"; break;
 	case S_Highlighted: suffix = "_h"; break;
 	default:            suffix = "_e"; break;
@@ -27,13 +29,13 @@ static shared_str StateArt(const shared_str& base, int ib_state)
 	return shared_str(buf);
 }
 
-CUIScrollArrowButton::CUIScrollArrowButton()
+CUIScrollArrowHalvesButton::CUIScrollArrowHalvesButton()
 	: m_applied_state(S_Enabled)
 {
 	m_half[0] = m_half[1] = NULL;
 }
 
-void CUIScrollArrowButton::SetupHalves(const shared_str& art_base)
+void CUIScrollArrowHalvesButton::SetupHalves(const shared_str& art_base)
 {
 	m_half_base = art_base;
 	if (!m_half[0])
@@ -49,7 +51,7 @@ void CUIScrollArrowButton::SetupHalves(const shared_str& art_base)
 	ApplyHalfArt(S_Enabled);
 }
 
-void CUIScrollArrowButton::LayoutHalves()
+void CUIScrollArrowHalvesButton::LayoutHalves()
 {
 	if (!m_half[0])
 		return;
@@ -62,14 +64,16 @@ void CUIScrollArrowButton::LayoutHalves()
 	}
 }
 
-int CUIScrollArrowButton::CurrentIBState()
+int CUIScrollArrowHalvesButton::CurrentIBState()
 {
+	if (!IsEnabled())
+		return S_Disabled;
 	if (GetButtonState() == CUIButton::BUTTON_PUSHED)
 		return S_Touched;
 	return CursorOverWindow() ? S_Highlighted : S_Enabled;
 }
 
-void CUIScrollArrowButton::ApplyHalfArt(int ib_state)
+void CUIScrollArrowHalvesButton::ApplyHalfArt(int ib_state)
 {
 	shared_str art = StateArt(m_half_base, ib_state);
 	for (int i = 0; i < 2; ++i)
@@ -87,7 +91,7 @@ void CUIScrollArrowButton::ApplyHalfArt(int ib_state)
 	}
 }
 
-void CUIScrollArrowButton::Update()
+void CUIScrollArrowHalvesButton::Update()
 {
 	inherited::Update();
 	if (!m_half[0])
@@ -118,32 +122,55 @@ void CUITabScrollArrows::Init(CUIWindow* parent, CUIWindow* msg_target)
 	m_msg_target = msg_target;
 }
 
+void CUITabScrollArrows::SetDeclaredArt(LPCSTR base)
+{
+	m_declared_art = base;
+}
+
 void CUITabScrollArrows::EnsureBuilt(CUITabButton* ref)
 {
 	if (m_arrow[0] || !ref)
 		return;
 
-	Build(ref);
+	const bool own_art = m_declared_art.size() > 0;
+	R_ASSERT2(own_art || ref->m_back_frameline == NULL,
+	          "scrolling frame_mode tab strip needs an explicit scroll_texture");
+	Build(ref, own_art ? eFrameline : eCapHalves);
 }
 
-void CUITabScrollArrows::Build(CUITabButton* ref)
+void CUITabScrollArrows::Build(CUITabButton* ref, EStrategy strat)
 {
 	static const LPCSTR glyph[2] = {"<", ">"};
 	static const LPCSTR name[2] = {"tab_scroll_left", "tab_scroll_right"};
 
 	const float height = ref->GetWndSize().y;
 	const float overlap = ref->Overlap();
-	const float width = 2.0f * ref->CapWidthUI();
+	float width;
+	if (strat == eFrameline)
+	{
+		string256 buf;
+		strconcat(sizeof(buf), buf, m_declared_art.c_str(), "_e");
+		const Frect art = CUITextureMaster::GetTextureRect(buf);
+		width = art.width() * height / art.height();
+	}
+	else
+		width = 2.0f * ref->CapWidthUI();
 
 	CUILines* style = ref->TextItemControl();
 	for (int s = 0; s < 2; ++s)
 	{
-		CUIScrollArrowButton* arrow = xr_new<CUIScrollArrowButton>();
+		CUIScrollArrowHalvesButton* halves = (strat == eCapHalves) ? xr_new<CUIScrollArrowHalvesButton>() : NULL;
+		CUIScrollArrowButton* arrow = halves ? halves : xr_new<CUIScrollArrowButton>();
 		arrow->SetAutoDelete(true);
 		arrow->InitButton(Fvector2().set(0.0f, 0.0f), Fvector2().set(width, height));
 		arrow->SetOverlap(overlap);
-		arrow->SetupHalves(ref->ArtBase());
-		arrow->LayoutHalves();
+		if (halves)
+		{
+			halves->SetupHalves(ref->ArtBase());
+			halves->LayoutHalves();
+		}
+		else
+			arrow->InitTexture(m_declared_art.c_str());
 		arrow->TextItemControl()->SetText(glyph[s]);
 		arrow->SetWindowName(name[s]);
 
@@ -173,6 +200,12 @@ void CUITabScrollArrows::Show(bool visible)
 	for (int s = 0; s < 2; ++s)
 		if (m_arrow[s])
 			m_arrow[s]->Show(visible);
+}
+
+void CUITabScrollArrows::SetEnabled(int side, bool enabled)
+{
+	if (m_arrow[side])
+		m_arrow[side]->Enable(enabled);
 }
 
 void CUITabScrollArrows::Draw()

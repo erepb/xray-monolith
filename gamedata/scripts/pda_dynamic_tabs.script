@@ -24,8 +24,9 @@
 --
 -- Returns the tab's registry-assigned section id ("ept_dynamic_<n>"), needed for unregister.
 --
--- The tab's look is not configurable: it inherits the strip's own art, font and size. Its width is
--- fixed to the strip's tab width, so a long caption may clip.
+-- The tab's look is not configurable: it inherits the strip's own art, font and size. On the
+-- shipped (frame_mode) PDA a too-long caption widens the tab; on an old-style static PDA xml the
+-- width is fixed and a long caption may clip.
 --
 -- To detect engine support: CUITabControl.AddTab ~= nil.
 

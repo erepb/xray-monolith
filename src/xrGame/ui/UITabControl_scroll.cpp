@@ -4,6 +4,7 @@
 #include "UITabScrollArrows.h"
 #include "UI3tButton.h"
 #include "UIStatic.h"
+#include "UITextureMaster.h"
 #include "../ui_base.h"
 
 static const float TAB_SCROLL_WHEEL_STEP = 1.0f / 3.0f;
@@ -58,6 +59,14 @@ bool CUITabControl::AddTab(LPCSTR id, LPCSTR caption, LPCSTR after_id)
 	CGameFont* font = first_tab->TextItemControl()->GetFont();
 	if (!font)
 		font = UI().Font().pFontLetterica16Russian;
+	if (first_tab->m_back_frameline)
+	{
+		float text_w = font->SizeOf_(caption);
+		UI().ClientToScreenScaledWidth(text_w);
+		const float end_w = first_tab->EndCapWidth();
+		if (text_w > size.x - 2.0f * end_w)
+			size.x = text_w + 2.0f * end_w;
+	}
 
 	Fvector2 pos;
 	pos.set(prev->GetWndPos().x + StripPitch(prev), prev->GetWndPos().y);
@@ -182,6 +191,9 @@ void CUITabControl::ApplyScroll(float scroll)
 		}
 		layout_x += StripPitch(m_TabsArr[i]);
 	}
+
+	m_arrows->SetEnabled(CUITabScrollArrows::eLeft, scroll > 0.5);
+	m_arrows->SetEnabled(CUITabScrollArrows::eRight, scroll < MaxScroll() - 0.5);
 }
 
 void CUITabControl::ClampScroll(float scroll)

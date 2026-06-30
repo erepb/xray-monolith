@@ -19,8 +19,10 @@ public:
 	void  SetOverlap(float v) { m_overlap = v; }
 	float Pitch() const { return GetWndSize().x - m_overlap; }
 
+	float EndCapWidth() const;
 	float CapWidthUI() const;
 	float CapOverlapUI() const;
+	float CapTexelsToUI(float texels) const;
 
 	const shared_str& ArtBase() const { return m_art_base; }
 	using inherited::InitTexture;
@@ -37,5 +39,6 @@ protected:
 	shared_str m_art_base;
 
 private:
+	float FramelineCapWidth() const;
 	Frect ArtRegion() const; // background art rect, in atlas texels (internal to CapWidthUI)
 };

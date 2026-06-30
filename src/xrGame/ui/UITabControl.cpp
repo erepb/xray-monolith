@@ -4,6 +4,9 @@
 #include "UITabScrollArrows.h"
 #include "UI3tButton.h"
 #include "UIStatic.h"
+#include "UIFrameLineWnd.h"
+#include "UITextureMaster.h"
+#include "../ui_base.h"
 
 CUITabControl::CUITabControl()
 	: m_cGlobalTextColor(0xFFFFFFFF),
@@ -26,6 +29,11 @@ CUITabControl::~CUITabControl()
 {
 	xr_delete(m_arrows); // detaches the arrow widgets while this parent is still valid
 	RemoveAll();
+}
+
+void CUITabControl::SetScrollArt(LPCSTR base)
+{
+	m_arrows->SetDeclaredArt(base);
 }
 
 void CUITabControl::SetCurrentOptValue()
@@ -130,6 +138,33 @@ bool CUITabControl::InsertItem(CUITabButton* pButton, u32 at)
 	}
 	R_ASSERT(pButton->m_btn_id.size());
 	return true;
+}
+
+void CUITabControl::ApplyAutoLayout(float margin)
+{
+	CUITabButton* ref = NULL;
+	u32 n = 0;
+	for (u32 i = 0; i < m_TabsArr.size(); ++i)
+		if (m_TabsArr[i]->m_back_frameline)
+		{
+			if (!ref)
+				ref = m_TabsArr[i];
+			++n;
+		}
+	if (!ref)
+		return;
+	m_margin = margin;
+	const float overlap = ref->CapOverlapUI();
+	const float eff_overlap = overlap - margin;
+	const float w = (GetWidth() + float(n - 1) * eff_overlap) / float(n);
+	for (u32 i = 0; i < m_TabsArr.size(); ++i)
+	{
+		CUITabButton* t = m_TabsArr[i];
+		if (!t->m_back_frameline)
+			continue;
+		t->SetOverlap(overlap);
+		t->SetWidth(w);
+	}
 }
 
 void CUITabControl::RemoveAll()

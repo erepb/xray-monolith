@@ -363,6 +363,7 @@ bool CUIXmlInit::Init3tButton(CUIXml& xml_doc, LPCSTR path, int index, CUI3tButt
 	R_ASSERT4(xml_doc.NavigateToNode(path,index), "XML node not found", path, xml_doc.m_xml_file_name);
 
 	pWnd->m_frameline_mode = (xml_doc.ReadAttribInt(path, index, "frame_mode", 0) == 1) ? true : false;
+	pWnd->m_frameline_cap_scaled = (xml_doc.ReadAttribInt(path, index, "frame_cap_scaled", 0) == 1) ? true : false;
 
 	pWnd->vertical = (xml_doc.ReadAttribInt(path, index, "vertical", 0) == 1) ? true : false;
 
@@ -819,6 +820,13 @@ bool CUIXmlInit::InitTabControl(CUIXml& xml_doc, LPCSTR path, int index, CUITabC
 	int tabsCount = xml_doc.GetNodesNum(path, index, "button");
 	int radio = xml_doc.ReadAttribInt(path, index, "radio");
 
+	LPCSTR scroll_art = xml_doc.ReadAttrib(path, index, "scroll_texture", "");
+	if (xr_strlen(scroll_art))
+		pWnd->SetScrollArt(scroll_art);
+
+	const bool auto_layout = xml_doc.ReadAttribInt(path, index, "auto_layout", 0) == 1;
+	const float tab_margin = xml_doc.ReadAttribFlt(path, index, "margin", 0.0f);
+
 	XML_NODE* tab_node = xml_doc.NavigateToNode(path, index);
 	xml_doc.SetLocalRoot(tab_node);
 
@@ -834,6 +842,9 @@ bool CUIXmlInit::InitTabControl(CUIXml& xml_doc, LPCSTR path, int index, CUITabC
 	}
 
 	xml_doc.SetLocalRoot(xml_doc.GetRoot());
+
+	if (auto_layout)
+		pWnd->ApplyAutoLayout(tab_margin);
 
 	return status;
 }
@@ -867,6 +878,9 @@ bool CUIXmlInit::InitFrameLine(CUIXml& xml_doc, LPCSTR path, int index, CUIFrame
 
 	u32 color = GetColor(xml_doc, buf, index, 0xff);
 	pWnd->SetTextureColor(color);
+
+	if (xml_doc.ReadAttribInt(path, index, "frame_cap_scaled", 0) == 1)
+		pWnd->SetCapScaled(true);
 
 	InitWindow(xml_doc, path, index, pWnd);
 	pWnd->InitFrameLineWnd(*base_name, pos, size, !vertical);
