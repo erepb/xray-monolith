@@ -16,6 +16,7 @@ struct TEX_INFO
 {
 	shared_str file;
 	Frect rect;
+	float overlap = -1.0f;
 	LPCSTR get_file_name() { return *file; }
 	Frect get_rect() { return rect; }
 };
@@ -48,6 +49,7 @@ public:
 	                        Frect& out_rect);
 	static float GetTextureHeight(const shared_str& texture_name);
 	static float GetTextureWidth(const shared_str& texture_name);
+	static float GetTextureOverlap(const shared_str& texture_name);
 	static Frect GetTextureRect(const shared_str& texture_name);
 	static void GetTextureShader(const shared_str& texture_name, ui_shader& sh);
 	static TEX_INFO FindItem(const shared_str& texture_name);

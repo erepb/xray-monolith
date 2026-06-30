@@ -54,6 +54,7 @@ void CUITextureMaster::ParseShTexInfo(LPCSTR xml_file)
 			info.rect.x2 = xml.ReadAttribFlt(node, "texture", i, "width") + info.rect.x1;
 			info.rect.y1 = xml.ReadAttribFlt(node, "texture", i, "y");
 			info.rect.y2 = xml.ReadAttribFlt(node, "texture", i, "height") + info.rect.y1;
+			info.overlap = xml.ReadAttribFlt(node, "texture", i, "overlap", -1.0f);
 			shared_str id = xml.ReadAttrib(node, "texture", i, "id");
 			/* avo: fix issue when values were not updated (silently skipped) when same key is encountered more than once. This is how std::map is designed. 
 			/* Also used more efficient C++11 std::map::emplace method instead of outdated std::pair::make_pair */
@@ -127,6 +128,12 @@ float CUITextureMaster::GetTextureWidth(const shared_str& texture_name)
 {
 	TEX_INFO info = FindItem(texture_name);
 	return info.rect.width();
+}
+
+float CUITextureMaster::GetTextureOverlap(const shared_str& texture_name)
+{
+	TEX_INFO info = FindItem(texture_name);
+	return info.overlap;
 }
 
 TEX_INFO CUITextureMaster::FindItem(const shared_str& texture_name)

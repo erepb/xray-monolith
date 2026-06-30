@@ -17,6 +17,7 @@ CUI3tButton::CUI3tButton()
 
 	m_background = NULL;
 	m_back_frameline = NULL;
+	m_frameline_cap_scaled = false;
 	m_frameline_mode = false;
 }
 
@@ -155,9 +156,22 @@ void CUI3tButton::InitTexture(LPCSTR tex_enabled,
 		m_back_frameline->InitState(S_Disabled, tex_disabled);
 		m_back_frameline->InitState(S_Touched, tex_touched);
 		m_back_frameline->InitState(S_Highlighted, tex_highlighted);
+		ApplyFramelineCapScale();
 	}
 
 	this->m_bTextureEnable = true;
+}
+
+void CUI3tButton::ApplyFramelineCapScale()
+{
+	if (!m_frameline_cap_scaled)
+		return;
+	for (int s = 0; s < S_Total; ++s)
+	{
+		CUIFrameLineWnd* fl = m_back_frameline->Get((IBState)s);
+		if (fl)
+			fl->SetCapScaled(true);
+	}
 }
 
 void CUI3tButton::SetTextureOffset(float x, float y)

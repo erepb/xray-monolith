@@ -44,10 +44,14 @@ public:
 
 
 	bool m_frameline_mode;
+	// frame_mode only: scale the frame caps to fit the element so their authored shape is preserved
+	// XML attribute "frame_cap_scaled".
+	bool m_frameline_cap_scaled;
 	bool vertical;
 	CUI_IB_Static* m_background;
 	CUI_IB_FrameLineWnd* m_back_frameline;
 private:
+	void ApplyFramelineCapScale();
 	void PlaySoundH();
 	void PlaySoundT();
 
