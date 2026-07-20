@@ -4,7 +4,6 @@
 #include "UITabScrollArrows.h"
 #include "UI3tButton.h"
 #include "UIStatic.h"
-#include "UITextureMaster.h"
 #include "../ui_base.h"
 
 static const float TAB_SCROLL_WHEEL_STEP = 1.0f / 3.0f;
@@ -191,9 +190,6 @@ void CUITabControl::ApplyScroll(float scroll)
 		}
 		layout_x += StripPitch(m_TabsArr[i]);
 	}
-
-	m_arrows->SetEnabled(CUITabScrollArrows::eLeft, scroll > 0.5);
-	m_arrows->SetEnabled(CUITabScrollArrows::eRight, scroll < MaxScroll() - 0.5);
 }
 
 void CUITabControl::ClampScroll(float scroll)

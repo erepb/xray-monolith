@@ -820,10 +820,6 @@ bool CUIXmlInit::InitTabControl(CUIXml& xml_doc, LPCSTR path, int index, CUITabC
 	int tabsCount = xml_doc.GetNodesNum(path, index, "button");
 	int radio = xml_doc.ReadAttribInt(path, index, "radio");
 
-	LPCSTR scroll_art = xml_doc.ReadAttrib(path, index, "scroll_texture", "");
-	if (xr_strlen(scroll_art))
-		pWnd->SetScrollArt(scroll_art);
-
 	const bool auto_layout = xml_doc.ReadAttribInt(path, index, "auto_layout", 0) == 1;
 	const float tab_margin = xml_doc.ReadAttribFlt(path, index, "margin", 0.0f);
 

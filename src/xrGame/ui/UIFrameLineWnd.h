@@ -21,8 +21,9 @@ public:
 	// When true, caps are scaled to fit the element -- texture->UI by height, then UI->screen for
 	// resolution -- so the caps keep their authored shape. When false the cap width is the texture's own
 	// pixel width used as-is on screen (never scaled) while its height stretches to fill the element, so
-	// the cap's proportions are not preserved.
-	void SetCapScaled(bool b) { m_cap_scaled = b; }
+	// the cap's proportions are not preserved. Enabling it also synthesizes the 3-slice from the base
+	// state rect when the descr ships no authored _b/_back/_e caps (DeriveCapsIfMissing).
+	void SetCapScaled(bool b);
 	bool GetCapScaled() const { return m_cap_scaled; }
 	LPCSTR GetTextureName() const { return m_texture_name.c_str(); }
 protected:
@@ -46,6 +47,9 @@ protected:
 	bool m_cap_scaled;
 	float m_cap_overlap = -1.0f; // begin-cap interlock overlap in atlas texels; <0 => unset
 	void DrawElements();
+	// Cap-scaled framelines whose descr lacks _b/_back/_e slices: build the 3-slice from the base state
+	// rect so the caps keep their shape at any width, without any dedicated cap art in the atlas.
+	void DeriveCapsIfMissing();
 
 	ui_shader m_shader;
 	Frect m_tex_rect [flMax];

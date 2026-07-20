@@ -2,7 +2,6 @@
 #include "UITabScrollArrows.h"
 #include "UIStatic.h"
 #include "UILines.h"
-#include "UITextureMaster.h"
 
 bool CUIScrollArrowButton::OnMouseDown(int mouse_btn)
 {
@@ -19,7 +18,6 @@ static shared_str StateArt(const shared_str& base, int ib_state)
 	LPCSTR suffix;
 	switch (ib_state)
 	{
-	case S_Disabled:    suffix = "_d"; break;
 	case S_Touched:     suffix = "_t"; break;
 	case S_Highlighted: suffix = "_h"; break;
 	default:            suffix = "_e"; break;
@@ -29,13 +27,13 @@ static shared_str StateArt(const shared_str& base, int ib_state)
 	return shared_str(buf);
 }
 
-CUIScrollArrowHalvesButton::CUIScrollArrowHalvesButton()
+CUIScrollArrowButton::CUIScrollArrowButton()
 	: m_applied_state(S_Enabled)
 {
 	m_half[0] = m_half[1] = NULL;
 }
 
-void CUIScrollArrowHalvesButton::SetupHalves(const shared_str& art_base)
+void CUIScrollArrowButton::SetupHalves(const shared_str& art_base)
 {
 	m_half_base = art_base;
 	if (!m_half[0])
@@ -51,10 +49,13 @@ void CUIScrollArrowHalvesButton::SetupHalves(const shared_str& art_base)
 	ApplyHalfArt(S_Enabled);
 }
 
-void CUIScrollArrowHalvesButton::LayoutHalves()
+void CUIScrollArrowButton::LayoutHalves()
 {
 	if (!m_half[0])
 		return;
+	// Two halves side by side, each half the arrow's width; the seam sits at the centre in the caps' shared
+	// opaque interior (ApplyHalfArt crops each end to match, 1:1). The left slope's transparent corner is
+	// top-left and the right slope's is bottom-right, so both survive only at the outer edges -- nothing pokes.
 	const float half_w = GetWndSize().x * 0.5f;
 	const float h = GetWndSize().y;
 	for (int i = 0; i < 2; ++i)
@@ -64,24 +65,26 @@ void CUIScrollArrowHalvesButton::LayoutHalves()
 	}
 }
 
-int CUIScrollArrowHalvesButton::CurrentIBState()
+int CUIScrollArrowButton::CurrentIBState()
 {
-	if (!IsEnabled())
-		return S_Disabled;
 	if (GetButtonState() == CUIButton::BUTTON_PUSHED)
 		return S_Touched;
 	return CursorOverWindow() ? S_Highlighted : S_Enabled;
 }
 
-void CUIScrollArrowHalvesButton::ApplyHalfArt(int ib_state)
+void CUIScrollArrowButton::ApplyHalfArt(int ib_state)
 {
 	shared_str art = StateArt(m_half_base, ib_state);
+	// Crop each end at exactly half the arrow width (in the art's texel space) so it draws 1:1 into its half --
+	// the slope keeps its authored angle, no horizontal squash. At width = 2*overlap the crop is one slope run,
+	// so both slopes are full and the two halves meet with a clean vertical seam in the shared interior.
+	const float half_w = GetWndSize().x * 0.5f;
 	for (int i = 0; i < 2; ++i)
 	{
 		CUIStatic* half = m_half[i];
 		half->InitTexture(art.c_str());
 		Frect r = half->GetTextureRect();
-		const float cap = r.height();
+		const float cap = (GetWndSize().y > 0.0f) ? half_w * r.height() / GetWndSize().y : r.height();
 		if (i == 0)
 			r.x2 = r.x1 + cap;
 		else
@@ -91,7 +94,7 @@ void CUIScrollArrowHalvesButton::ApplyHalfArt(int ib_state)
 	}
 }
 
-void CUIScrollArrowHalvesButton::Update()
+void CUIScrollArrowButton::Update()
 {
 	inherited::Update();
 	if (!m_half[0])
@@ -122,55 +125,33 @@ void CUITabScrollArrows::Init(CUIWindow* parent, CUIWindow* msg_target)
 	m_msg_target = msg_target;
 }
 
-void CUITabScrollArrows::SetDeclaredArt(LPCSTR base)
-{
-	m_declared_art = base;
-}
-
 void CUITabScrollArrows::EnsureBuilt(CUITabButton* ref)
 {
 	if (m_arrow[0] || !ref)
 		return;
-
-	const bool own_art = m_declared_art.size() > 0;
-	R_ASSERT2(own_art || ref->m_back_frameline == NULL,
-	          "scrolling frame_mode tab strip needs an explicit scroll_texture");
-	Build(ref, own_art ? eFrameline : eCapHalves);
+	Build(ref);
 }
 
-void CUITabScrollArrows::Build(CUITabButton* ref, EStrategy strat)
+void CUITabScrollArrows::Build(CUITabButton* ref)
 {
 	static const LPCSTR glyph[2] = {"<", ">"};
 	static const LPCSTR name[2] = {"tab_scroll_left", "tab_scroll_right"};
 
 	const float height = ref->GetWndSize().y;
 	const float overlap = ref->Overlap();
-	float width;
-	if (strat == eFrameline)
-	{
-		string256 buf;
-		strconcat(sizeof(buf), buf, m_declared_art.c_str(), "_e");
-		const Frect art = CUITextureMaster::GetTextureRect(buf);
-		width = art.width() * height / art.height();
-	}
-	else
-		width = 2.0f * ref->CapWidthUI();
+	// 2*overlap: each cap-half is one slope run wide, so both slopes are full and the halves meet cleanly at the
+	// centre (the tightest width the side-by-side halves render without truncating -- see ApplyHalfArt).
+	const float width = 2.0f * overlap;
 
 	CUILines* style = ref->TextItemControl();
 	for (int s = 0; s < 2; ++s)
 	{
-		CUIScrollArrowHalvesButton* halves = (strat == eCapHalves) ? xr_new<CUIScrollArrowHalvesButton>() : NULL;
-		CUIScrollArrowButton* arrow = halves ? halves : xr_new<CUIScrollArrowButton>();
+		CUIScrollArrowButton* arrow = xr_new<CUIScrollArrowButton>();
 		arrow->SetAutoDelete(true);
 		arrow->InitButton(Fvector2().set(0.0f, 0.0f), Fvector2().set(width, height));
 		arrow->SetOverlap(overlap);
-		if (halves)
-		{
-			halves->SetupHalves(ref->ArtBase());
-			halves->LayoutHalves();
-		}
-		else
-			arrow->InitTexture(m_declared_art.c_str());
+		arrow->SetupHalves(ref->ArtBase());
+		arrow->LayoutHalves();
 		arrow->TextItemControl()->SetText(glyph[s]);
 		arrow->SetWindowName(name[s]);
 
@@ -200,12 +181,6 @@ void CUITabScrollArrows::Show(bool visible)
 	for (int s = 0; s < 2; ++s)
 		if (m_arrow[s])
 			m_arrow[s]->Show(visible);
-}
-
-void CUITabScrollArrows::SetEnabled(int side, bool enabled)
-{
-	if (m_arrow[side])
-		m_arrow[side]->Enable(enabled);
 }
 
 void CUITabScrollArrows::Draw()

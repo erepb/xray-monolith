@@ -51,7 +51,6 @@ public:
 	void ScrollBy(float dx);
 	void EnsureVisible(const shared_str& id);
 	bool CanScroll() const;
-	void SetScrollArt(LPCSTR base);
 
 	virtual void SendMessage(CUIWindow* pWnd, s16 msg, void* pData);
 	virtual void Enable(bool status);

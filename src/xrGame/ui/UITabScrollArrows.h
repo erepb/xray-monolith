@@ -4,20 +4,17 @@
 class CUIStatic;
 class CUIWindow;
 
+// Scroll arrow for the tab strip: a tab-style button whose face is two mirrored halves of the strip tabs'
+// own cap art, side by side (no dedicated arrow texture). Cleanest at width = 2*overlap (one slope run per
+// half); narrower would truncate the slopes.
 class CUIScrollArrowButton : public CUITabButton
 {
 	typedef CUITabButton inherited;
 public:
+	CUIScrollArrowButton();
+
 	virtual bool OnMouseDown(int mouse_btn);
 	virtual bool OnMouseAction(float x, float y, EUIMessages mouse_action);
-};
-
-// LEGACY static-strip arrow
-class CUIScrollArrowHalvesButton : public CUIScrollArrowButton
-{
-	typedef CUIScrollArrowButton inherited;
-public:
-	CUIScrollArrowHalvesButton();
 
 	void SetupHalves(const shared_str& art_base);
 	void LayoutHalves();
@@ -42,25 +39,20 @@ public:
 	~CUITabScrollArrows();
 
 	void Init(CUIWindow* parent, CUIWindow* msg_target);
-	void SetDeclaredArt(LPCSTR base);
 
 	void  EnsureBuilt(CUITabButton* ref);
 	void  Layout(float view_right, float strip_y);
 	void  Show(bool visible);
-	void  SetEnabled(int side, bool enabled);
 	void  Draw();
 	void  ApplyHitClips(const Fvector2& origin);
 	int   SideOf(const CUIWindow* clicked) const;
 	float Width(int side) const { return m_arrow[side] ? m_arrow[side]->GetWndSize().x : 0.0f; }
 
 private:
-	enum EStrategy { eCapHalves, eFrameline };
-
-	void Build(CUITabButton* ref, EStrategy strat);
+	void Build(CUITabButton* ref);
 
 	CUIWindow* m_parent;
 	CUIWindow* m_msg_target;
-	shared_str m_declared_art;
 
 	CUIScrollArrowButton* m_arrow[2];
 };

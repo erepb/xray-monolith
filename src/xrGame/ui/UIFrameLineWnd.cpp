@@ -8,6 +8,8 @@ CUIFrameLineWnd::CUIFrameLineWnd()
 	  m_cap_scaled(false)
 {
 	m_texture_color = color_argb(255, 255, 255, 255);
+	for (int k = 0; k < flMax; ++k)
+		m_tex_rect[k].set(0.0f, 0.0f, 0.0f, 0.0f);
 }
 
 void CUIFrameLineWnd::InitFrameLineWnd(LPCSTR base_name, Fvector2 pos, Fvector2 size, bool horizontal)
@@ -28,6 +30,10 @@ void CUIFrameLineWnd::InitTexture(LPCSTR texture, LPCSTR sh_name)
 {
 	m_bTextureVisible = true;
 	m_texture_name = texture;
+	// A missing slice leaves its rect untouched by CUITextureMaster::InitTexture, so pre-zero to a known
+	// state: the asserts below then pass on all-missing (0==0) and DeriveCapsIfMissing can detect it.
+	for (int k = 0; k < flMax; ++k)
+		m_tex_rect[k].set(0.0f, 0.0f, 0.0f, 0.0f);
 	string256 buf;
 	CUITextureMaster::InitTexture(strconcat(sizeof(buf), buf, texture, "_back"), sh_name, m_shader, m_tex_rect[flBack]);
 	CUITextureMaster::InitTexture(strconcat(sizeof(buf), buf, texture, "_b"), sh_name, m_shader, m_tex_rect[flFirst]);
@@ -43,6 +49,41 @@ void CUIFrameLineWnd::InitTexture(LPCSTR texture, LPCSTR sh_name)
 		R_ASSERT2(fsimilar(m_tex_rect[flFirst].width(), m_tex_rect[flSecond].width()), texture);
 		R_ASSERT2(fsimilar(m_tex_rect[flFirst].width(), m_tex_rect[flBack].width()), texture);
 	}
+
+	if (m_cap_scaled)
+		DeriveCapsIfMissing();
+}
+
+void CUIFrameLineWnd::SetCapScaled(bool b)
+{
+	m_cap_scaled = b;
+	if (b)
+		DeriveCapsIfMissing();
+}
+
+void CUIFrameLineWnd::DeriveCapsIfMissing()
+{
+	if (m_tex_rect[flFirst].width() > 0.0f) // authored _b cap present -> use the shipped slices as-is
+		return;
+	// The per-state _b/_back/_e lookups above all missed, so m_shader was left bound to a non-existent
+	// "<id>_e" file (the last miss) -> the caps would draw black. Rebind shader AND rect to the base state
+	// atlas id (the un-suffixed id, e.g. ui_inGame2_pda_button_e), the synthesis source. A miss here --
+	// absent id, or a raw file-path texture not in any descr -- yields a zero rect and bails.
+	Frect base;
+	base.set(0.0f, 0.0f, 0.0f, 0.0f);
+	CUITextureMaster::InitTexture(m_texture_name, "hud\\default", m_shader, base);
+	if (base.width() <= 0.0f || base.height() <= 0.0f)
+		return; // nothing to derive from -> leave empty (draws nothing), never garbage
+
+	// Square-by-height caps carved from the base rect's ends; a 1-texel centre column tiles the middle. The
+	// carved caps include whatever slanted alpha the art has at its ends, so interlock the tabs by the cap
+	// width -- a parallelogram art then reads as a continuous strip instead of separated rectangles.
+	const float cap = _min(base.height(), base.width() * 0.5f);
+	m_tex_rect[flFirst].set(base.x1, base.y1, base.x1 + cap, base.y2);   // _b  left cap
+	m_tex_rect[flSecond].set(base.x2 - cap, base.y1, base.x2, base.y2);  // _e  right cap
+	const float midx = (base.x1 + base.x2) * 0.5f;
+	m_tex_rect[flBack].set(midx - 0.5f, base.y1, midx + 0.5f, base.y2);  // _back centre column
+	m_cap_overlap = cap;
 }
 
 void CUIFrameLineWnd::Draw()

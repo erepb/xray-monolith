@@ -31,11 +31,6 @@ CUITabControl::~CUITabControl()
 	RemoveAll();
 }
 
-void CUITabControl::SetScrollArt(LPCSTR base)
-{
-	m_arrows->SetDeclaredArt(base);
-}
-
 void CUITabControl::SetCurrentOptValue()
 {
 	CUIOptionsItem::SetCurrentOptValue();

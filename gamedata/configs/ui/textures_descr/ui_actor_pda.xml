@@ -87,27 +87,28 @@
 	    <texture id="ui_inGame2_pda_buttons_leftside_back" x="200" y="1" width="10" height="27" />
 	    <texture id="ui_inGame2_pda_buttons_leftside_e" x="212" y="1" width="28" height="27" />
 
-	    <texture id="ui_inGame2_pda_button_e"     x="284" y="215" width="64" height="27" />
-	    <texture id="ui_inGame2_pda_button_h"     x="348" y="215" width="64" height="27" />
-	    <texture id="ui_inGame2_pda_button_t"     x="412" y="215" width="64" height="27" />
-	    <texture id="ui_inGame2_pda_button_d"     x="476" y="215" width="64" height="27" />
-	    <texture id="ui_inGame2_pda_button_e_b"    x="284" y="215" width="30" height="27" overlap="26" />
-	    <texture id="ui_inGame2_pda_button_e_back" x="314" y="215" width="4"  height="27" />
-	    <texture id="ui_inGame2_pda_button_e_e"    x="318" y="215" width="30" height="27" />
-	    <texture id="ui_inGame2_pda_button_h_b"    x="348" y="215" width="30" height="27" />
-	    <texture id="ui_inGame2_pda_button_h_back" x="378" y="215" width="4"  height="27" />
-	    <texture id="ui_inGame2_pda_button_h_e"    x="382" y="215" width="30" height="27" />
-	    <texture id="ui_inGame2_pda_button_t_b"    x="412" y="215" width="30" height="27" />
-	    <texture id="ui_inGame2_pda_button_t_back" x="442" y="215" width="4"  height="27" />
-	    <texture id="ui_inGame2_pda_button_t_e"    x="446" y="215" width="30" height="27" />
-	    <texture id="ui_inGame2_pda_button_d_b"    x="476" y="215" width="30" height="27" />
-	    <texture id="ui_inGame2_pda_button_d_back" x="506" y="215" width="4"  height="27" />
-	    <texture id="ui_inGame2_pda_button_d_e"    x="510" y="215" width="30" height="27" />
-
-	    <texture id="ui_inGame2_pda_button_scroll_e" x="540" y="215" width="50" height="27" />
-	    <texture id="ui_inGame2_pda_button_scroll_h" x="590" y="215" width="50" height="27" />
-	    <texture id="ui_inGame2_pda_button_scroll_t" x="640" y="215" width="50" height="27" />
-	    <texture id="ui_inGame2_pda_button_scroll_d" x="690" y="215" width="50" height="27" />
+	    <texture id="ui_inGame2_pda_button_e"     x="282" y="215" width="172" height="27" />
+	    <texture id="ui_inGame2_pda_button_h"     x="455" y="215" width="172" height="27" />
+	    <texture id="ui_inGame2_pda_button_t"     x="628" y="215" width="172" height="27" />
+	    <texture id="ui_inGame2_pda_button_d"     x="628" y="215" width="172" height="27" />
+	    <!-- Frame-mode tab caps carved from the ends of each 172px button state above: a 30px begin cap and a
+	         30px end cap, plus the full 112px uniform middle (Xs+30, width 172-60) tiled to fill the gap. The
+	         vanilla art is a parallelogram with a 27px (45 deg) slope at each end; the caps are 30px, not 27, to
+	         also capture the 3px-thick edge of the selected (_t) state. overlap=27 is the slope run (the tab
+	         interlock), read only from the enabled begin cap. A foreign descr that omits these -> engine
+	         synthesizes from the base rect. -->
+	    <texture id="ui_inGame2_pda_button_e_b"    x="282" y="215" width="30" height="27" overlap="27" />
+	    <texture id="ui_inGame2_pda_button_e_back" x="312" y="215" width="112" height="27" />
+	    <texture id="ui_inGame2_pda_button_e_e"    x="424" y="215" width="30" height="27" />
+	    <texture id="ui_inGame2_pda_button_h_b"    x="455" y="215" width="30" height="27" />
+	    <texture id="ui_inGame2_pda_button_h_back" x="485" y="215" width="112" height="27" />
+	    <texture id="ui_inGame2_pda_button_h_e"    x="597" y="215" width="30" height="27" />
+	    <texture id="ui_inGame2_pda_button_t_b"    x="628" y="215" width="30" height="27" />
+	    <texture id="ui_inGame2_pda_button_t_back" x="658" y="215" width="112" height="27" />
+	    <texture id="ui_inGame2_pda_button_t_e"    x="770" y="215" width="30" height="27" />
+	    <texture id="ui_inGame2_pda_button_d_b"    x="628" y="215" width="30" height="27" />
+	    <texture id="ui_inGame2_pda_button_d_back" x="658" y="215" width="112" height="27" />
+	    <texture id="ui_inGame2_pda_button_d_e"    x="770" y="215" width="30" height="27" />
 
 	    <texture id="ui_inGame2_pda_button_E_b"     x="0" y="1" width="30" height="27" />
 	    <texture id="ui_inGame2_pda_button_E_back"  x="27" y="1" width="7" height="27" />
