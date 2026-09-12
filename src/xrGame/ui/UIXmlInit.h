@@ -29,6 +29,7 @@ class CUIDragDropListEx;
 class CUIComboBox;
 class CUITabButtonMP;
 class CUITrackBar;
+class CUIRangeBar;
 class CUILines;
 class CUITextWnd;
 
@@ -67,6 +68,7 @@ public:
 	static bool InitListBox(CUIXml& xml_doc, LPCSTR path, int index, CUIListBox* pWnd);
 	static bool InitComboBox(CUIXml& xml_doc, LPCSTR path, int index, CUIComboBox* pWnd);
 	static bool InitTrackBar(CUIXml& xml_doc, LPCSTR path, int index, CUITrackBar* pWnd);
+	static bool InitRangeBar(CUIXml& xml_doc, LPCSTR path, int index, CUIRangeBar* pWnd);
 	static Frect GetFRect(CUIXml& xml_doc, LPCSTR path, int index);
 	static u32 GetColor(CUIXml& xml_doc, LPCSTR path, int index, u32 def_clr);
 public:

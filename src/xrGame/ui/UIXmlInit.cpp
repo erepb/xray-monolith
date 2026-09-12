@@ -15,6 +15,7 @@
 #include "UIListBox.h"
 #include "UIComboBox.h"
 #include "UITrackBar.h"
+#include "UIRangeBar.h"
 #include "game_base_space.h"
 
 #include "UITextureMaster.h"
@@ -1314,6 +1315,42 @@ bool CUIXmlInit::InitTrackBar(CUIXml& xml_doc, LPCSTR path, int index, CUITrackB
 	pWnd->SetStep(step);
 
 
+	return true;
+}
+
+bool CUIXmlInit::InitRangeBar(CUIXml& xml_doc, LPCSTR path, int index, CUIRangeBar* pWnd)
+{
+	InitWindow(xml_doc, path, index, pWnd);
+
+	float step = xml_doc.ReadAttribFlt(path, index, "step", 1.f);
+	if (xml_doc.ReadAttribInt(path, index, "is_integer", 0))
+		step = _max(1.f, floorf(step));
+	pWnd->SetStep(step);
+	pWnd->SetBounds(xml_doc.ReadAttribFlt(path, index, "min", 0.f), xml_doc.ReadAttribFlt(path, index, "max", 1.f));
+	int count = xml_doc.ReadAttribInt(path, index, "count", 2);
+
+	string256 buf;
+	strconcat(sizeof(buf), buf, path, ":track");
+	LPCSTR track = xml_doc.Read(buf, index, "ui_inGame2_opt_slider_bar");
+	strconcat(sizeof(buf), buf, path, ":knob");
+	LPCSTR knob = xml_doc.Read(buf, index, "ui_inGame2_opt_slider_box");
+	strconcat(sizeof(buf), buf, path, ":knob_min");
+	LPCSTR knob_min = xml_doc.Read(buf, index, NULL);
+	strconcat(sizeof(buf), buf, path, ":knob_max");
+	LPCSTR knob_max = xml_doc.Read(buf, index, NULL);
+
+	pWnd->InitRangeBar(pWnd->GetWndPos(), pWnd->GetWndSize(), count, track, knob, knob_min, knob_max);
+
+	strconcat(sizeof(buf), buf, path, ":fill");
+	if (xml_doc.NavigateToNode(buf, index))
+	{
+		float fill_h = xml_doc.ReadAttribFlt(buf, index, "height", 0.f);
+		LPCSTR fill = xml_doc.Read(buf, index, NULL);
+		if (fill && *fill)
+			pWnd->SetFillArt(fill, fill_h);
+		else
+			pWnd->SetFillColor(GetColor(xml_doc, buf, index, 0xff), fill_h);
+	}
 	return true;
 }
 

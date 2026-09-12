@@ -15,6 +15,7 @@
 #include "ui\UIEditBox.h"
 #include "ui\UIAnimatedStatic.h"
 #include "ui\UITrackBar.h"
+#include "ui\UIRangeBar.h"
 #include "ui\UICDkey.h"
 #include "ui\UIMapInfo.h"
 #include "ui\UIMMShniaga.h"
@@ -331,6 +332,14 @@ CUITrackBar* CScriptXmlInit::InitTrackBar(LPCSTR path, CUIWindow* parent)
 	return pWnd;
 }
 
+CUIRangeBar* CScriptXmlInit::InitRangeBar(LPCSTR path, CUIWindow* parent)
+{
+	CUIRangeBar* pWnd = xr_new<CUIRangeBar>();
+	CUIXmlInit::InitRangeBar(m_xml, path, 0, pWnd);
+	_attach_child(pWnd, parent);
+	return pWnd;
+}
+
 CUIProgressBar* CScriptXmlInit::InitProgressBar(LPCSTR path, CUIWindow* parent)
 {
 	CUIProgressBar* pWnd = xr_new<CUIProgressBar>();
@@ -396,6 +405,7 @@ void CScriptXmlInit::script_register(lua_State* L)
 		.def("InitMapList", &CScriptXmlInit::InitMapList)
 		.def("InitMapInfo", &CScriptXmlInit::InitMapInfo)
 		.def("InitTrackBar", &CScriptXmlInit::InitTrackBar)
+		.def("InitRangeBar", &CScriptXmlInit::InitRangeBar)
 		.def("InitCDkey", &CScriptXmlInit::InitCDkey)
 		.def("InitMPPlayerName", &CScriptXmlInit::InitMPPlayerName)
 		.def("InitKeyBinding", &CScriptXmlInit::InitKeyBinding)

@@ -6894,6 +6894,9 @@
     <ClInclude Include="ui\UITrackBar.h">
       <Filter>UI\UIWindows\TrackBar</Filter>
     </ClInclude>
+    <ClInclude Include="ui\UIRangeBar.h">
+      <Filter>UI\UIWindows\TrackBar</Filter>
+    </ClInclude>
     <ClInclude Include="ui\UITrackButton.h">
       <Filter>UI\UIWindows\TrackBar</Filter>
     </ClInclude>
@@ -10590,6 +10593,12 @@
       <Filter>UI\UIWindows\InteractiveBackground</Filter>
     </ClCompile>
     <ClCompile Include="ui\UITrackBar.cpp">
+      <Filter>UI\UIWindows\TrackBar</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\UIRangeBar.cpp">
+      <Filter>UI\UIWindows\TrackBar</Filter>
+    </ClCompile>
+    <ClCompile Include="ui\UIRangeBar_script.cpp">
       <Filter>UI\UIWindows\TrackBar</Filter>
     </ClCompile>
     <ClCompile Include="ui\UITrackButton.cpp">

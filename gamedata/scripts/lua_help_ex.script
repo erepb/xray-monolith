@@ -275,6 +275,42 @@
         CUIWindow GetWindow() // get_hud():GetWindow()
     }
 
+    // A slider with `count` knobs on one track (default 2: a min/max range). Knobs keep their
+    // order: knob r stops on knob r-1 / r+1 instead of passing it, so rank 0 is always the smallest
+    // value and rank count-1 the largest. Knobs may share one value; a drag that starts on such a
+    // stack picks the knob by the direction of the first move (left = lower rank, right = higher).
+    //
+    // Build it from XML with xml:InitRangeBar(path, parent):
+    //   <bar x= y= width= height= count="2" step="1" is_integer="0" min="0" max="1">  -- count clamped to >= 1; min/max default to 0..1 (defaults)
+    //     <track>ui_inGame2_opt_slider_bar</track>   -- frameline base (_b/_back/_e); the default
+    //     <knob>ui_inGame2_opt_slider_box</knob>      -- every knob, _e/_d/_h/_t; the default (a missing _d/_h/_t falls back to _e)
+    //     <knob_min>..</knob_min>                     -- optional art for rank 0; must share <knob>'s texture size (rect, hit-test and centring use it)
+    //     <knob_max>..</knob_max>                     -- optional art for rank count-1; must share <knob>'s texture size (rect, hit-test and centring use it)
+    //     <fill>..</fill>                             -- optional: frameline art drawn rank 0 -> rank count-1
+    //     <fill r= g= b= a= height="8"/>              -- ..or a solid tinted quad, no art needed (color="name"
+    //                                                    works too); height is centred, 0/absent = full height.
+    //                                                    White at low alpha brightens the groove, black darkens.
+    //   </bar>
+    // Values start spread evenly over [min, max] (both bounds for count 2). is_integer is resolved
+    // at init: step becomes max(1, floor(step)); later SetStep is taken as given.
+    //
+    // Change notification: self:Register(bar, "name") then
+    // self:AddCallback("name", ui_events.BUTTON_CLICKED, fn, self) fires on every value change from
+    // the mouse (drag or track click), wherever the cursor is; the setters below fire nothing.
+    // The control draws no numbers -- pair it with a CUITextWnd. The mouse wheel is not consumed,
+    // so a parent scroll view keeps scrolling over it.
+    class CUIRangeBar : CUIWindow {
+        void SetBounds(float bmin, float bmax)  // clamps and re-snaps the current values; inverted bounds pin every value to bmin
+        void SetStep(float step)
+        int GetCount()
+        void SetValue(int rank, float v)      // clamped between the neighbouring knobs
+        float GetValue(int rank)              // rank is clamped
+        void SetValues(float a, float b)      // rank 0 and rank count-1, any order; middle knobs are clamped into [a, b]
+        float GetMinValue()                   // GetValue(0)
+        float GetMaxValue()                   // GetValue(count-1)
+        void SetFillColor(u32 argb, float height) // (re)style the span as a solid quad; height 0 = full
+    }
+
     class CUIProgressBar {
         CUIStatic GetProgressStatic()
 		bool GetSnapNoDelay() Get the status of "SnapNoDelay"
