@@ -10,6 +10,7 @@
 #include "stdafx.h"
 #include "patrol_path.h"
 #include "levelgamedef.h"
+#include "game_graph.h"
 #include "../xrCore/mezz_stringbuffer.h"
 
 LPCSTR TEST_PATROL_PATH_NAME = "val_dogs_nest4_centre";
@@ -106,6 +107,22 @@ u32 CPatrolPath::resolve(const CLevelGraph* level_graph, const CGameLevelCrossTa
 	for (auto& I : vertices())
 		resolved += u32(I.second->data().resolve(level_graph, cross, game_graph));
 	return resolved;
+}
+
+u32 CPatrolPath::approximate_level(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id)
+{
+	u32 marked = 0;
+	for (auto& I : vertices())
+	{
+		CPatrolPoint& point = I.second->data();
+		// level_graph = nullptr: this runs before the level is loaded, ai().level_graph() is not valid yet.
+		const GameGraph::_GRAPH_ID vertex_id = point.game_vertex_id(nullptr, nullptr, &graph);
+		if (!graph.valid_vertex_id(vertex_id) || graph.vertex(vertex_id)->level_id() != level_id)
+			continue;
+		point.relocate(graph, vertex_id, true);
+		++marked;
+	}
+	return marked;
 }
 
 bool CPatrolPath::parse_point_link(const std::string& link, const std::map<shared_str, u32>& vertex_ids_by_name, std::pair<u16, float>& result, string256& reason)

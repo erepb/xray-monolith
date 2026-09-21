@@ -134,15 +134,20 @@ void CPatrolPathStorage::load_from_config(const CGameGraph* game_graph)
 			level = game_graph->header().level(level_name, true);
 			if (!level)
 			{
-				Msg("- [spawn_overlays] %s [%s]: waits for level '%s'", file, patrol_name, level_name);
+				Msg("- [spawn_overlays] %s [%s]: level '%s' is not installed, skipped", file, patrol_name, level_name);
 				continue;
 			}
 		}
 
 		if (m_registry.find(patrol_name) != m_registry.end())
 		{
-			Msg("! [spawn_overlays] %s [%s]: a compiled path has this name, skipped", file, patrol_name);
-			continue;
+			if (!overlay)
+			{
+				Msg("! [spawn_overlays] %s [%s]: a compiled path has this name, skipped", file, patrol_name);
+				continue;
+			}
+			Msg("* [spawn_overlays] %s [%s]: replaces the compiled path of that name", file, patrol_name);
+			erase(patrol_name);
 		}
 
 		auto* patrol_path = xr_new<CPatrolPath>(patrol_name);
@@ -175,6 +180,43 @@ void CPatrolPathStorage::resolve_level(const CLevelGraph* level_graph, const CGa
 		resolved += I.second->resolve(level_graph, cross, game_graph);
 	if (resolved)
 		Msg("* [spawn_overlays] patrol paths: %d points snapped to the AI map of %s", resolved, *game_graph->header().level(level_graph->level_id()).name());
+}
+
+void CPatrolPathStorage::merge(CPatrolPathStorage& source, MOVED_PATHS& moved)
+{
+	moved.clear();
+	for (u32 i = 0; i < source.m_registry.size();)
+	{
+		const auto I = source.m_registry.begin() + i;
+		const shared_str name = I->first;
+		CPatrolPath* path = I->second;
+		if (m_registry.find(name) != m_registry.end())
+		{
+			++i;
+			continue;
+		}
+
+		m_registry.insert(std::make_pair(name, path));
+		source.m_registry.erase(I);
+		moved.push_back(std::make_pair(name, path));
+	}
+}
+
+void CPatrolPathStorage::erase(const shared_str& name)
+{
+	const auto I = m_registry.find(name);
+	if (I == m_registry.end())
+		return;
+	xr_delete(I->second);
+	m_registry.erase(I);
+}
+
+void CPatrolPathStorage::approximate_level(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id)
+{
+	u32 marked = 0;
+	for (auto& I : m_registry)
+		marked += I.second->approximate_level(graph, level_id);
+	Msg("* [spawn_overlays] patrol paths: %d points on %s will be re-snapped to its new AI map", marked, *graph.header().level(level_id).name());
 }
 
 void CPatrolPathStorage::save(IWriter& stream)
