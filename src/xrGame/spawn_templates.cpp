@@ -1,7 +1,7 @@
 ////////////////////////////////////////////////////////////////////////////
 //	Module 		: spawn_templates.cpp
 //	Created 	: 16.09.2026
-//	Description : Spawn template registry shared by ltx overlays and fragments
+//	Description : Spawn template registry shared by ltx overlays, fragments and level packs
 ////////////////////////////////////////////////////////////////////////////
 
 #include "stdafx.h"
@@ -91,7 +91,7 @@ bool spawn_overlays::find_template(const SPAWN_GRAPH& spawns, const NAME_INDEX& 
 	return true;
 }
 
-bool spawn_overlays::same_object_present(const SPAWN_GRAPH& spawns, const NAME_INDEX& index, const CGameGraph& graph, const LPCSTR name, const GameGraph::_LEVEL_ID level_id, const Fvector& position)
+bool spawn_overlays::same_object_present(const SPAWN_GRAPH& spawns, const NAME_INDEX& index, const CGameGraph& graph, const LPCSTR name, const GameGraph::_LEVEL_ID level_id, const Fvector& position, ALife::_SPAWN_ID* match)
 {
 	const auto found = index.find(shared_str(name));
 	if (found == index.end())
@@ -105,7 +105,11 @@ bool spawn_overlays::same_object_present(const SPAWN_GRAPH& spawns, const NAME_I
 		if (graph.vertex(object->m_tGraphID)->level_id() != level_id)
 			continue;
 		if (object->o_Position.distance_to(position) <= SAME_OBJECT_TOLERANCE)
+		{
+			if (match)
+				*match = candidate;
 			return true;
+		}
 	}
 	return false;
 }

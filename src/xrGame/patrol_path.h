@@ -38,6 +38,7 @@ public:
 	// level != nullptr: points may omit their vertex ids
 	bool load_from_config(const CInifile* ini_paths, LPCSTR patrol_name, const CGameGraph* game_graph, const GameGraph::SLevel* level, string256& reason);
 	u32 resolve(const CLevelGraph* level_graph, const CGameLevelCrossTable* cross, const CGameGraph* game_graph);
+	u32 approximate_level(const CGameGraph& graph, GameGraph::_LEVEL_ID level_id);
 	IC const CVertex* point(shared_str name) const;
 	template <typename T>
 	IC const CVertex* point(const Fvector& position, const T& evaluator) const;

@@ -8,6 +8,7 @@
 #include "spawn_overlays.h"
 #include "spawn_templates.h"
 #include "game_graph_builder.h"
+#include "patrol_path_storage.h"
 
 using namespace spawn_overlays;
 
@@ -18,6 +19,8 @@ namespace
 	const LPCSTR SECTION_LINKS = "graph_links";
 	const LPCSTR SECTION_UNLINKS = "graph_unlinks";
 	const LPCSTR SECTION_REMOVE = "spawn_remove";
+	const LPCSTR SECTION_REPLACE = "spawn_replace";
+	const LPCSTR SECTION_PATH_REMOVE = "path_remove";
 	const LPCSTR PATCH_PREFIX = "spawn_patch@";
 	const float DEFAULT_LINK_TOLERANCE = 2.f;
 
@@ -26,7 +29,7 @@ namespace
 		FS.update_path(file_name, "$game_config$", OVERLAY_FILE);
 		if (FS.exist(file_name))
 			return true;
-		Msg("* [spawn_overlays] %s not found: graph_links/graph_unlinks/spawn_remove/spawn_patch are off; spawns\\<level>\\*.spawn fragments, offset sync and patrol_paths.ltx 'level =' sections still apply", OVERLAY_FILE);
+		Msg("* [spawn_overlays] %s not found: graph_links/graph_unlinks/spawn_remove/spawn_patch are off; level packs, spawns\\<level>\\*.spawn fragments, offset sync and patrol_paths.ltx 'level =' sections still apply", OVERLAY_FILE);
 		return false;
 	}
 
@@ -324,30 +327,52 @@ namespace
 		xr_delete(object.m_ini_file);
 	}
 
-	void apply_removes(CInifile& ini, STemplates& templates, u32& removed)
+	// [spawn_remove] and [spawn_replace] share the syntax (name [= match_position]); the latter runs before the
+	// fragments and packs so their copy of the object is taken instead of the base one.
+	void apply_removes(CInifile& ini, const LPCSTR section, STemplates& templates, u32& removed)
 	{
-		if (!section_has_lines(ini, SECTION_REMOVE))
+		if (!section_has_lines(ini, section))
 			return;
 
 		LPCSTR key, value;
-		for (int i = 0; ini.r_line(SECTION_REMOVE, i, &key, &value); ++i)
+		for (int i = 0; ini.r_line(section, i, &key, &value); ++i)
 		{
-			const LPCSTR source = line_source(ini, SECTION_REMOVE, key);
+			const LPCSTR source = line_source(ini, section, key);
 			ALife::_SPAWN_ID spawn_id;
 			string256 reason;
 			if (!find_template(templates.spawns, templates.index, key, value, spawn_id, reason))
 			{
-				log_skip(source, SECTION_REMOVE, key, reason);
+				log_skip(source, section, key, reason);
 				continue;
 			}
 
 			CSE_Abstract& object = templates.spawns.vertex(spawn_id)->data()->object();
 			const CSE_ALifeObject* alife_object = smart_cast<CSE_ALifeObject*>(&object);
 			if (alife_object && alife_object->m_spawn_story_id != INVALID_SPAWN_STORY_ID)
-				Msg("! [spawn_overlays] %s [%s] %s: template has spawn_story_id %d, scripts spawning it by story id will fail", source, SECTION_REMOVE, key, alife_object->m_spawn_story_id);
+				Msg("! [spawn_overlays] %s [%s] %s: template has spawn_story_id %d, scripts spawning it by story id will fail", source, section, key, alife_object->m_spawn_story_id);
 
-			Msg("* [spawn_overlays] spawn_remove: %s (%s, spawn id %d) (%s)", key, *object.s_name, spawn_id, source);
+			Msg("* [spawn_overlays] %s: %s (%s, spawn id %d) (%s)", section, key, *object.s_name, spawn_id, source);
 			remove_template(templates, key, spawn_id);
+			++removed;
+		}
+	}
+
+	void apply_path_removes(CInifile& ini, CPatrolPathStorage& storage, u32& removed)
+	{
+		if (!section_has_lines(ini, SECTION_PATH_REMOVE))
+			return;
+
+		LPCSTR key, value;
+		for (int i = 0; ini.r_line(SECTION_PATH_REMOVE, i, &key, &value); ++i)
+		{
+			const LPCSTR source = line_source(ini, SECTION_PATH_REMOVE, key);
+			if (!storage.path(key, true))
+			{
+				log_skip(source, SECTION_PATH_REMOVE, key, "no path with that name");
+				continue;
+			}
+			Msg("* [spawn_overlays] %s: %s (%s)", SECTION_PATH_REMOVE, key, source);
+			storage.erase(key);
 			++removed;
 		}
 	}
@@ -607,7 +632,7 @@ namespace
 	}
 }
 
-CSpawnOverlays::CSpawnOverlays()
+CSpawnOverlays::CSpawnOverlays(const LPCSTR base_spawn_name)
 {
 	string_path file_name;
 	m_ini = overlay_file(file_name) ? xr_new<CInifile>(file_name, TRUE) : nullptr;
@@ -619,6 +644,8 @@ CSpawnOverlays::CSpawnOverlays()
 	m_link_tolerance = DEFAULT_LINK_TOLERANCE;
 	if (m_ini && setting_set(*m_ini, "link_tolerance"))
 		m_link_tolerance = m_ini->r_float(SECTION_SETTINGS, "link_tolerance");
+
+	m_packs.open(base_spawn_name);
 }
 
 CSpawnOverlays::~CSpawnOverlays()
@@ -638,12 +665,14 @@ CGameGraph* CSpawnOverlays::apply_graph(const CGameGraph& base, void*& buffer)
 		matching_sections(*m_ini, SECTION_LINKS, link_sections);
 		matching_sections(*m_ini, SECTION_UNLINKS, unlink_sections);
 	}
-	if (offsets.empty() && link_sections.empty() && unlink_sections.empty())
+	if (offsets.empty() && link_sections.empty() && unlink_sections.empty() && m_packs.empty())
 		return nullptr;
 
 	CGameGraphBuilder builder(base);
 	u32 added = 0, removed = 0;
+	// offsets before the packs: the sync reweights the base edges of a moved level, pack edges keep their weights
 	apply_level_offsets(builder, offsets);
+	const u32 levels = m_packs.append_levels(builder, m_link_tolerance);
 	for (const LPCSTR section : unlink_sections)
 		apply_unlinks(*m_ini, section, builder, m_link_tolerance, removed);
 	for (const LPCSTR section : link_sections)
@@ -652,7 +681,7 @@ CGameGraph* CSpawnOverlays::apply_graph(const CGameGraph& base, void*& buffer)
 	if (!builder.dirty())
 		return nullptr;
 
-	Msg("* [spawn_overlays] graph: %d levels moved, +%d edges, -%d edges, %d vertices", u32(offsets.size()), added, removed, builder.vertex_count());
+	Msg("* [spawn_overlays] graph: +%d levels, %d levels moved, +%d edges, -%d edges, %d vertices", levels, offsets.size(), added, removed, builder.vertex_count());
 	return builder.build(buffer);
 }
 
@@ -662,12 +691,42 @@ void CSpawnOverlays::apply_objects(CALifeSpawnRegistry::SPAWN_GRAPH& spawns, con
 
 	u32 removed = 0, patched = 0, added = 0;
 	if (m_ini)
+		apply_removes(*m_ini, SECTION_REPLACE, templates, removed);
+	apply_fragments(templates, graph, added);
+	added += m_packs.add_objects(templates, graph);
+	if (m_ini)
 	{
-		apply_removes(*m_ini, templates, removed);
+		apply_removes(*m_ini, SECTION_REMOVE, templates, removed);
 		apply_patches(*m_ini, templates, graph, patched);
 	}
-	apply_fragments(templates, graph, added);
+	m_packs.report_drift(templates, graph);
 
 	if (removed || patched || added)
 		Msg("* [spawn_overlays] objects: -%d templates, %d patched, +%d added, %d remaining", removed, patched, added, spawns.vertex_count());
+}
+
+void CSpawnOverlays::add_paths(CPatrolPathStorage& storage, const CGameGraph& graph)
+{
+	if (const u32 added = m_packs.add_paths(storage, graph))
+		Msg("* [spawn_overlays] paths: +%d from packs", added);
+	u32 removed = 0;
+	if (m_ini)
+		apply_path_removes(*m_ini, storage, removed);
+	if (removed)
+		Msg("* [spawn_overlays] paths: -%d removed", removed);
+}
+
+void CSpawnOverlays::spawn_guid(const xrGUID& base, xrGUID& result) const
+{
+	m_packs.finish(base, result);
+}
+
+void CSpawnOverlays::legacy_save(const xrGUID& save_guid)
+{
+	m_packs.legacy_save(save_guid);
+}
+
+bool CSpawnOverlays::take_legacy(xr_vector<u16>& vertices, xr_vector<u16>& spawn_ids)
+{
+	return m_packs.take_legacy(vertices, spawn_ids);
 }

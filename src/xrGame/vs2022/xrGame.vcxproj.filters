@@ -4764,6 +4764,9 @@
     <ClInclude Include="..\spawn_overlays.h">
       <Filter>AI\ANavigation\GameGraph</Filter>
     </ClInclude>
+    <ClInclude Include="..\spawn_packs.h">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClInclude>
     <ClInclude Include="..\spawn_templates.h">
       <Filter>AI\ANavigation\GameGraph</Filter>
     </ClInclude>
@@ -8574,6 +8577,9 @@
       <Filter>AI\ANavigation\GameGraph</Filter>
     </ClCompile>
     <ClCompile Include="..\spawn_overlays.cpp">
+      <Filter>AI\ANavigation\GameGraph</Filter>
+    </ClCompile>
+    <ClCompile Include="..\spawn_packs.cpp">
       <Filter>AI\ANavigation\GameGraph</Filter>
     </ClCompile>
     <ClCompile Include="..\spawn_templates.cpp">

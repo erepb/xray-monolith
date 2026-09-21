@@ -1,7 +1,7 @@
 ////////////////////////////////////////////////////////////////////////////
 //	Module 		: spawn_templates.h
 //	Created 	: 16.09.2026
-//	Description : Spawn template registry shared by ltx overlays and fragments
+//	Description : Spawn template registry shared by ltx overlays, fragments and level packs
 ////////////////////////////////////////////////////////////////////////////
 
 #pragma once
@@ -37,7 +37,7 @@ namespace spawn_overlays
 	};
 
 	bool find_template(const SPAWN_GRAPH& spawns, const NAME_INDEX& index, LPCSTR name, LPCSTR match_position, ALife::_SPAWN_ID& spawn_id, string256& reason);
-	bool same_object_present(const SPAWN_GRAPH& spawns, const NAME_INDEX& index, const CGameGraph& graph, LPCSTR name, GameGraph::_LEVEL_ID level_id, const Fvector& position);
+	bool same_object_present(const SPAWN_GRAPH& spawns, const NAME_INDEX& index, const CGameGraph& graph, LPCSTR name, GameGraph::_LEVEL_ID level_id, const Fvector& position, ALife::_SPAWN_ID* match = nullptr);
 	void remove_template(STemplates& templates, LPCSTR name, ALife::_SPAWN_ID spawn_id);
 	bool claim_id(xr_set<u32>& taken, u32 id);
 	void release_id(xr_set<u32>& taken, u32 id);
