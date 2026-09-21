@@ -33,11 +33,14 @@ public:
 	IC CPatrolPathStorage();
 	virtual ~CPatrolPathStorage();
 	virtual void load(IReader& stream); 
-	virtual void load_from_config();
+	// game_graph = nullptr (no ALifeSimulator): 'level =' sections are skipped
+	virtual void load_from_config(const CGameGraph* game_graph);
 	virtual void save(IWriter& stream);
 
 public:
 	void load_raw(const CLevelGraph* level_graph, const CGameLevelCrossTable* cross, const CGameGraph* game_graph, IReader& stream);
+	// Snaps the config paths of the loaded level that were approximated at load
+	void resolve_level(const CLevelGraph* level_graph, const CGameLevelCrossTable* cross, const CGameGraph* game_graph);
 	IC const CPatrolPath* path(shared_str patrol_name, bool no_assert = false) const;
 	IC const PATROL_REGISTRY& patrol_paths() const;
 };

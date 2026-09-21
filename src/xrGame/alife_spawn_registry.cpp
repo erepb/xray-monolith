@@ -12,6 +12,8 @@
 #include "game_base.h"
 #include "ai_space.h"
 #include "game_graph.h"
+#include "spawn_overlays.h"
+#include "patrol_path_storage.h"
 
 #pragma warning(push)
 #pragma warning(disable:4995)
@@ -23,6 +25,7 @@ CALifeSpawnRegistry::CALifeSpawnRegistry(LPCSTR section)
 	m_spawn_name = "";
 	seed(u32(CPU::QPC() & 0xffffffff));
 	m_game_graph = 0;
+	m_graph_buffer = nullptr;
 	m_chunk = 0;
 	m_file = 0;
 }
@@ -30,6 +33,7 @@ CALifeSpawnRegistry::CALifeSpawnRegistry(LPCSTR section)
 CALifeSpawnRegistry::~CALifeSpawnRegistry()
 {
 	xr_delete(m_game_graph);
+	xr_free(m_graph_buffer);
 	m_chunk->close();
 	FS.r_close(m_file);
 }
@@ -49,6 +53,33 @@ void CALifeSpawnRegistry::save(IWriter& memory_stream)
 	memory_stream.close_chunk();
 
 	memory_stream.close_chunk();
+}
+
+void CALifeSpawnRegistry::save_spawn(IWriter& stream)
+{
+	stream.open_chunk(0);
+	stream.w_u32(header().version());
+	stream.w(&header().guid(), sizeof(header().guid()));
+	stream.w(&header().graph_guid(), sizeof(header().graph_guid()));
+	stream.w_u32(m_spawns.vertex_count());
+	stream.w_u32(m_game_graph->header().level_count());
+	stream.close_chunk();
+
+	stream.open_chunk(1);
+	m_spawns.save(stream);
+	stream.close_chunk();
+
+	stream.open_chunk(2);
+	save_data(m_artefact_spawn_positions, stream);
+	stream.close_chunk();
+
+	stream.open_chunk(3);
+	ai().m_patrol_path_storage->save(stream);
+	stream.close_chunk();
+
+	stream.open_chunk(4);
+	m_game_graph->save(stream);
+	stream.close_chunk();
 }
 
 void CALifeSpawnRegistry::load(IReader& file_stream, LPCSTR game_name)
@@ -137,21 +168,34 @@ void CALifeSpawnRegistry::load(IReader& file_stream, xrGUID* save_guid)
 	load_data(m_artefact_spawn_positions, *chunk);
 	chunk->close();
 
-	chunk = file_stream.open_chunk(3);
-	R_ASSERT2(chunk, "Spawn version mismatch - REBUILD SPAWN!");
-	ai().patrol_path_storage(*chunk);
-	chunk->close();
-
 	VERIFY(!m_chunk);
 	m_chunk = file_stream.open_chunk(4);
 	R_ASSERT2(m_chunk, "Spawn version mismatch - REBUILD SPAWN!");
 
 	VERIFY(!m_game_graph);
 	m_game_graph = xr_new<CGameGraph>(*m_chunk);
+
+	spawn_overlays::CSpawnOverlays overlays;
+
+	VERIFY(!m_graph_buffer);
+	CGameGraph* overlaid = overlays.apply_graph(*m_game_graph, m_graph_buffer);
+	if (overlaid)
+	{
+		xr_delete(m_game_graph);
+		m_game_graph = overlaid;
+	}
 	ai().game_graph(m_game_graph);
 
 	R_ASSERT2((header().graph_guid() == ai().game_graph().header().guid()) || ignore_save_incompatibility(),
 	          "Spawn doesn't correspond to the graph : REBUILD SPAWN!");
+
+	overlays.apply_objects(m_spawns, *m_game_graph);
+
+	// after the graph: patrol_paths.ltx 'level =' sections resolve their points on it
+	chunk = file_stream.open_chunk(3);
+	R_ASSERT2(chunk, "Spawn version mismatch - REBUILD SPAWN!");
+	ai().patrol_path_storage(*chunk);
+	chunk->close();
 
 	build_story_spawns();
 
