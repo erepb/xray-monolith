@@ -1,0 +1,84 @@
+; Spawn overlays: edits the engine applies on top of the loaded all.spawn.
+; Mods contribute configs\mod_spawn_overlays_<mod>.ltx (DLTX) and extend the sections below with ![section].
+; [graph_links] and [graph_unlinks] may also be declared with a suffix ([graph_unlinks@<mod>]): a separate section
+; with its own keys, applied the same way. Use it when a level must be the key of more than one line, or to keep
+; a mod's lines from colliding with another mod's keys.
+; Every line is resolved when the spawn registry loads (new game and every save load); a line that cannot be
+; applied is skipped and logged as "! [spawn_overlays] <file> [<section>] <key>: <reason>". Applied lines are
+; logged as "* [spawn_overlays] ...".
+; A line that names a level that is not installed instead logs "- [spawn_overlays] ... waits for level '<name>'"
+; and applies once that level is (links, unlinks, patches, fragments, patrol_paths.ltx). A [spawn_patch@]
+; section's level key is the exception: it gates the whole section, not just that one line (see below).
+;
+; Endpoints are "level_name:x,y,z" - a level point of the named level. The nearest game-graph vertex of that
+; level within link_tolerance metres is used; level changers stand on graph vertices, so their coordinates work.
+
+[settings]
+link_tolerance = 2.0
+; Move each level's global position to the offset of its [levelNN] section in game.ltx (the sections listed under
+; [levels]; vanilla keeps them in game_levels.ltx, mods add or override theirs with DLTX) when it differs from the
+; one compiled into the graph, reweighting the edges that cross into that level. Level packs that relocate
+; existing levels only have to override that offset.
+sync_level_offsets = true
+
+; Adds a game-graph edge in both directions between two level points. Weight = distance between the vertices'
+; global positions, as xrAI encodes cross-level edges. An edge that already exists is left alone.
+;   level_a:x,y,z = level_b:x,y,z
+[graph_links]
+
+; Removes game-graph edges in both directions. Keys are unique within a section: to cut one level from several,
+; put that level on the value side (l09_deadcity = l07_military, k02_trucks_cemetery = l07_military) or use a
+; suffixed section per line.
+;   level_a = level_b               every edge between the two levels
+;   level_a:x,y,z = level_b:x,y,z   one specific edge
+[graph_unlinks]
+
+; Removes spawn templates by object name (one name per line). Affects new games only; objects already created
+; from the template live in the save; the removed template's story_id / spawn_story_id are freed for a later
+; add or patch to reuse. Some names are shared by several templates (furniture, boxes, ladders);
+; those need the instance's position as the value (within 0.5 m, same as match_position below):
+;   gar_smart_terrain_5_8_box
+;   level_prefix_inventory_box_0000 = 12.3, 4.5, -6.7
+[spawn_remove]
+
+; Edits one spawn template; the section suffix is the object name. Keys, all optional:
+;   match_position = x, y, z          selects the instance when the name is shared (within 0.5 m)
+;   level = <level name>              move to another level; needs position too (coordinates are level-local
+;                                      and do not carry over). A level not (yet) installed waits the WHOLE
+;                                      section (no key of it is applied); an empty value or a missing position
+;                                      skips the whole section (! log).
+;   position = x, y, z                level-local position; graph vertex and AI node are re-resolved
+;   direction = x, y, z
+;   custom_data = [logic]\ncfg = scripts\x.ltx   ; \n = line break, \\ = literal backslash (needed before a
+;                                                  folder starting with 'n'); or use custom_data_cfg below to
+;                                                  avoid escaping altogether
+;   custom_data_cfg = scripts\x.ltx   shorthand for the line above
+;   story_id = <int>                  -1 = none; already held by another template is skipped (! log)
+;   spawn_story_id = <int>            -1 = none; already held by another template is skipped (! log)
+;   object_flags = 0x...
+; [spawn_patch@gar_physic_object_bandit_base_generator]
+; position = 63.9, 0.6, -23.1
+
+; Adding objects: drop SDK-format level.spawn files into spawns\<level_name>\<anything>.spawn (LevelEditor "Build ->
+; spawn" output, or Universal ACDC "-compile <dir> -level"). Every record becomes a template of that level; its
+; graph vertex and AI node come from the record position, ids baked into the file are ignored. A record the level
+; already has (same name within 1 m of the same position) is skipped silently, so a whole-level SDK export works.
+; Skipped with a log line: creatures (scripts spawn them), records nested in another object, unknown sections.
+; graph_point records are ignored. A record whose story_id / spawn_story_id is already taken by another
+; template has that id cleared (! log) rather than being skipped outright. A level changer whose destination
+; level is not (yet) installed waits for it instead of failing, logged as "- [spawn_overlays] ... waits for
+; level". New games only, like everything above.
+
+; Patrol paths: configs\patrol_paths.ltx (vanilla root, extend with mod_patrol_paths_<mod>.ltx) accepts a section-level
+; "level = <level name>". Points of such a section may omit game_vertex_id / level_vertex_id: the engine approximates
+; them from the position at load and snaps them to the AI map when the level is entered, as xrAI would have compiled
+; them. Any section that cannot be loaded (with or without "level": missing key, unknown link target, name clash with
+; a compiled path) is skipped and logged instead of failing.
+;   [my_mod_walk]
+;   level = l01_escape
+;   points = p0,p1
+;   p0:name = wp00
+;   p0:position = 12.3,4.5,-6.7
+;   p0:links = p1(1)
+;   p1:name = wp01
+;   p1:position = 15.3,4.5,-6.7

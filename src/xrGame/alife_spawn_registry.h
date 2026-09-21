@@ -42,6 +42,7 @@ private:
 	IReader* m_file;
 	IReader* m_chunk;
 	CGameGraph* m_game_graph;
+	void* m_graph_buffer;
 
 protected:
 	void save_updates(IWriter& stream);
@@ -68,6 +69,8 @@ public:
 	virtual ~CALifeSpawnRegistry();
 	virtual void load(IReader& file_stream, xrGUID* save_guid = 0);
 	virtual void save(IWriter& memory_stream);
+	// Writes the assembled registry (overlays and level packs applied) in the all.spawn layout.
+	void save_spawn(IWriter& stream);
 	void load(IReader& file_stream, LPCSTR game_name);
 	void load(LPCSTR spawn_name);
 	void fill_new_spawns(xr_vector<ALife::_SPAWN_ID>& spawns, ALife::_TIME_ID game_time,
