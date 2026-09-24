@@ -7,6 +7,24 @@
 #include "stdafx.h"
 #include "game_graph_builder.h"
 
+bool CGameGraphBuilder::readable_version(const u32 version)
+{
+	return version == XRAI_CURRENT_VERSION || version == XRAI_LARGE_VERSION;
+}
+
+CGameGraph* CGameGraphBuilder::open_graph(IReader& stream)
+{
+	GameGraph::CHeader header;
+	header.load(&stream);
+	if (!readable_version(header.version()))
+		return nullptr;
+	auto* vertices = static_cast<GameGraph::CVertex*>(stream.pointer());
+	u8* cursor = reinterpret_cast<u8*>(vertices + header.vertex_count());
+	cursor += header.edge_count() * sizeof(GameGraph::CEdge);
+	auto* tables = reinterpret_cast<u32*>(reinterpret_cast<GameGraph::CLevelPoint*>(cursor) + header.death_point_count());
+	return xr_new<CGameGraph>(header, vertices, tables);
+}
+
 CGameGraphBuilder::CGameGraphBuilder(const CGameGraph& base)
 {
 	m_header = base.header();
@@ -240,9 +258,9 @@ const u32* CGameGraphBuilder::validate_cross_table(const CGameGraph& pack, const
 		return nullptr;
 	}
 	const auto* table_header = reinterpret_cast<const CGameLevelCrossTable::CHeader*>(table + 1);
-	if (table_header->version() != XRAI_CURRENT_VERSION)
+	if (!readable_version(table_header->version()))
 	{
-		xr_sprintf(reason, "cross table version %d, expected %d", table_header->version(), XRAI_CURRENT_VERSION);
+		xr_sprintf(reason, "cross table version %d is not readable", table_header->version());
 		return nullptr;
 	}
 	if (u64(*table) < sizeof(u32) + sizeof(CGameLevelCrossTable::CHeader) + u64(table_header->level_vertex_count()) * sizeof(CGameLevelCrossTable::CCell))
@@ -577,6 +595,7 @@ CGameGraph* CGameGraphBuilder::build(void*& buffer) const
 		if (source.vertex_map)
 		{
 			auto* table_header = reinterpret_cast<CGameLevelCrossTable::CHeader*>(cursor + sizeof(u32));
+			table_header->dwVersion = m_header.version();
 			table_header->m_game_guid = m_header.m_guid;
 			auto* cells = reinterpret_cast<CGameLevelCrossTable::CCell*>(table_header + 1);
 			for (u32 i = 0, n = table_header->level_vertex_count(); i < n; ++i)

@@ -44,7 +44,6 @@ IC CGameGraph::CGameGraph(const IReader& _stream)
 IC CGameGraph::CGameGraph(const CHeader& header, CVertex* nodes, u32* cross_tables)
 {
 	m_header = header;
-	R_ASSERT2(this->header().version() == XRAI_CURRENT_VERSION, "Graph version mismatch!");
 	m_nodes = nodes;
 	m_current_level_some_vertex_id = _GRAPH_ID(-1);
 	m_enabled.assign(this->header().vertex_count(), true);

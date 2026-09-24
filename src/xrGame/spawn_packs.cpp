@@ -22,9 +22,13 @@ namespace
 	// Packet version whose layout peek_graph_vertex reads.
 	const u16 PEEKED_SPAWN_VERSION = 128;
 	static_assert(SPAWN_VERSION == PEEKED_SPAWN_VERSION, "peek_graph_vertex mirrors Spawn_Read for version 128; update both");
-	// all.spawn version whose chunk layout (header, records, paths, graph) the pack readers walk.
-	const u32 PACK_XRAI_VERSION = 10;
-	static_assert(XRAI_CURRENT_VERSION == PACK_XRAI_VERSION, "pack readers walk the version 10 all.spawn layout; update them");
+	static_assert(XRAI_CURRENT_VERSION == 10, "CGameGraphBuilder::readable_version lists the all.spawn layouts the pack readers walk; update it");
+
+	// The level.ai versions the CLevelGraph constructor accepts; keep in sync with it.
+	bool level_ai_loadable(const u32 version)
+	{
+		return version == XRAI_CURRENT_VERSION || version == XRAI_LARGE_VERSION;
+	}
 
 	void close_pack(CSpawnPacks::SPack* pack)
 	{
@@ -399,30 +403,30 @@ namespace
 		xrGUID guid{};
 		chunk->r(&guid, sizeof(guid));
 		chunk->close();
-		if (version != PACK_XRAI_VERSION)
+		if (!CGameGraphBuilder::readable_version(version))
 		{
-			Msg("! [spawn_overlays] pack %s: spawn version %d, expected %d, skipped", name, version, PACK_XRAI_VERSION);
+			Msg("! [spawn_overlays] pack %s: spawn version %d is not readable, skipped", name, version);
 			FS.r_close(file);
 			return nullptr;
 		}
 
 		chunk = file->open_chunk(4);
-		if (!chunk || chunk->r_u8() != PACK_XRAI_VERSION)
+		CGameGraph* graph = chunk ? CGameGraphBuilder::open_graph(*chunk) : nullptr;
+		if (!graph)
 		{
-			Msg("! [spawn_overlays] pack %s: no game graph of version %d, skipped", name, PACK_XRAI_VERSION);
+			Msg("! [spawn_overlays] pack %s: no game graph of a readable version, skipped", name);
 			if (chunk)
 				chunk->close();
 			FS.r_close(file);
 			return nullptr;
 		}
-		chunk->rewind();
 
 		auto* pack = xr_new<CSpawnPacks::SPack>();
 		pack->file_name = name;
 		pack->file = file;
 		pack->graph_chunk = chunk;
 		pack->guid = guid;
-		pack->graph = xr_new<CGameGraph>(*chunk);
+		pack->graph = graph;
 		return pack;
 	}
 
@@ -536,12 +540,13 @@ void CSpawnPacks::open(const LPCSTR base_spawn_name)
 	}
 }
 
-bool CSpawnPacks::installed_level_guid(const LPCSTR level_name, xrGUID& guid)
+bool CSpawnPacks::installed_level(const LPCSTR level_name, xrGUID& guid, u32& version)
 {
 	const shared_str key(level_name);
-	if (const auto cached = m_installed_guids.find(key); cached != m_installed_guids.end())
+	if (const auto cached = m_installed_levels.find(key); cached != m_installed_levels.end())
 	{
-		guid = cached->second;
+		guid = cached->second.guid;
+		version = cached->second.version;
 		return true;
 	}
 
@@ -554,10 +559,14 @@ bool CSpawnPacks::installed_level_guid(const LPCSTR level_name, xrGUID& guid)
 		return false;
 	const bool ok = file->length() >= int(sizeof(hdrNODES));
 	if (ok)
-		guid = static_cast<const hdrNODES*>(file->pointer())->guid;
+	{
+		const auto* header = static_cast<const hdrNODES*>(file->pointer());
+		guid = header->guid;
+		version = header->version;
+	}
 	FS.r_close(file);
 	if (ok)
-		m_installed_guids[key] = guid;
+		m_installed_levels[key] = {guid, version};
 	return ok;
 }
 
@@ -595,11 +604,21 @@ u32 CSpawnPacks::append_levels(CGameGraphBuilder& builder, float tolerance, cons
 			}
 
 			xrGUID installed{};
-			if (!installed_level_guid(level_name, installed))
+			u32 ai_version = 0;
+			if (!installed_level(level_name, installed, ai_version))
 			{
 				if (!present)
 				{
 					Msg("- [spawn_overlays] pack %s: level '%s' is not installed (no levels\\%s\\level.ai), skipped", file_name, level_name, level_name);
+					++pack.missing_levels;
+				}
+				continue;
+			}
+			if (!level_ai_loadable(ai_version))
+			{
+				if (!present)
+				{
+					Msg("! [spawn_overlays] pack %s: level '%s' has a version %d level.ai, which this engine cannot load, skipped", file_name, level_name, ai_version);
 					++pack.missing_levels;
 				}
 				continue;

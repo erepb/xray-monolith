@@ -78,14 +78,19 @@ namespace spawn_overlays
 		typedef xr_vector<SPack*> PACKS;
 
 	private:
+		struct SInstalledLevel
+		{
+			xrGUID guid;
+			u32 version;
+		};
 		PACKS m_packs;
-		xr_map<shared_str, xrGUID> m_installed_guids;
+		xr_map<shared_str, SInstalledLevel> m_installed_levels;
 		xr_vector<shared_str> m_cut_levels;
 
 	private:
 		bool cut(LPCSTR level_name) const;
-		// GUID of the installed $game_levels$\<level_name>\level.ai; false when there is none.
-		bool installed_level_guid(LPCSTR level_name, xrGUID& guid);
+		// GUID and version of the installed $game_levels$\<level_name>\level.ai; false when there is none.
+		bool installed_level(LPCSTR level_name, xrGUID& guid, u32& version);
 		bool substituted(GameGraph::_LEVEL_ID level_id) const;
 		void approximate_substituted(SPAWN_GRAPH& spawns, const CGameGraph& graph) const;
 

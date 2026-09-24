@@ -47,6 +47,9 @@ private:
 	static void clear_vertex_map(const CGameGraph& pack, GameGraph::_LEVEL_ID pack_level_id, xr_vector<u32>& vertex_map);
 
 public:
+	static bool readable_version(u32 version);
+	static CGameGraph* open_graph(IReader& stream);
+
 	explicit CGameGraphBuilder(const CGameGraph& base);
 	IC const GameGraph::CHeader& header() const { return m_header; }
 	IC u32 vertex_count() const { return m_vertices.size(); }
