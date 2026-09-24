@@ -74,6 +74,23 @@ GameGraph::LEVEL_MAP const& get_levels(CGameGraph const* graph)
 	return result;
 }
 
+// Game vertex id of level_name's vertex whose level point is nearest to position; nil when the graph has no such
+// level.
+::luabind::object get_nearest_vertex(lua_State* L, CGameGraph const* graph, LPCSTR level_name, const Fvector& position)
+{
+	THROW(graph);
+	u32 vertex_id;
+	float distance;
+	const GameGraph::SLevel* level = graph->header().level(level_name, true);
+	if (level && graph->nearest_vertex(level->id(), position, vertex_id, distance))
+		return ::luabind::object(L, vertex_id);
+
+	::luabind::object none(L);
+	lua_pushnil(L);
+	none.set();
+	return none;
+}
+
 #pragma optimize("s",on)
 void CGameGraph::script_register(lua_State* L)
 {
@@ -92,7 +109,8 @@ void CGameGraph::script_register(lua_State* L)
 		.def("vertex", &CGameGraph::vertex)
 		.def("vertex_id", &CGameGraph::vertex_id)
 		.def("levels", &get_levels, return_stl_iterator)
-		.def("level_neighbours", &get_level_neighbours, raw<1>()),
+		.def("level_neighbours", &get_level_neighbours, raw<1>())
+		.def("nearest_vertex", &get_nearest_vertex, raw<1>()),
 
 		class_<CVertex>("GameGraph__CVertex")
 		.def("level_point", &CVertex__level_point)
