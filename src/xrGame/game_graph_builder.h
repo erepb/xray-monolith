@@ -60,6 +60,8 @@ public:
 	bool add_edge(u32 from, u32 to, float distance);
 	u32 remove_edge(u32 from, u32 to);
 	u32 remove_level_edges(GameGraph::_LEVEL_ID level_a, GameGraph::_LEVEL_ID level_b);
+	// Removes every edge between a vertex of level_id and a vertex of another level, both directions.
+	u32 isolate_level(GameGraph::_LEVEL_ID level_id);
 	u32 set_level_offset(GameGraph::_LEVEL_ID level_id, const Fvector& offset);
 
 	// Appends pack level pack_level_id as level_id (name, section, guid from the pack header, offset as given) with

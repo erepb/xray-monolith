@@ -39,6 +39,8 @@ public:
 	bool load_from_config(const CInifile* ini_paths, LPCSTR patrol_name, const CGameGraph* game_graph, const GameGraph::SLevel* level, string256& reason);
 	u32 resolve(const CLevelGraph* level_graph, const CGameLevelCrossTable* cross, const CGameGraph* game_graph);
 	u32 approximate_level(const CGameGraph& graph, GameGraph::_LEVEL_ID level_id);
+	// Level of the first point on the AI map (level vertex id != -1): points off it carry no valid game vertex.
+	bool on_level(const CGameGraph& graph, GameGraph::_LEVEL_ID level_id) const;
 	IC const CVertex* point(shared_str name) const;
 	template <typename T>
 	IC const CVertex* point(const Fvector& position, const T& evaluator) const;

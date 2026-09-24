@@ -21,6 +21,7 @@ namespace
 	const LPCSTR SECTION_REMOVE = "spawn_remove";
 	const LPCSTR SECTION_REPLACE = "spawn_replace";
 	const LPCSTR SECTION_PATH_REMOVE = "path_remove";
+	const LPCSTR SECTION_LEVEL_CUT = "level_cut";
 	const LPCSTR PATCH_PREFIX = "spawn_patch@";
 	const float DEFAULT_LINK_TOLERANCE = 2.f;
 
@@ -519,6 +520,97 @@ namespace
 		}
 	}
 
+	void apply_level_cuts(CInifile& ini, CGameGraphBuilder& builder, xr_vector<GameGraph::_LEVEL_ID>& cut_levels, u32& removed)
+	{
+		LPCSTR key, value;
+		for (int i = 0; ini.r_line(SECTION_LEVEL_CUT, i, &key, &value); ++i)
+		{
+			const LPCSTR source = line_source(ini, SECTION_LEVEL_CUT, key);
+			const GameGraph::SLevel* level = builder.level(key);
+			if (!level)
+			{
+				Msg("- [spawn_overlays] %s [%s] %s: not in the graph, nothing to cut", source, SECTION_LEVEL_CUT, key);
+				continue;
+			}
+			if (std::find(cut_levels.begin(), cut_levels.end(), level->id()) != cut_levels.end())
+				continue;
+			cut_levels.push_back(level->id());
+			const u32 count = builder.isolate_level(level->id());
+			removed += count;
+			Msg("* [spawn_overlays] %s: %s cut off, -%d edges (%s)", SECTION_LEVEL_CUT, key, count, source);
+		}
+	}
+
+	int cut_level_index(const xr_vector<GameGraph::_LEVEL_ID>& cut_levels, const GameGraph::_LEVEL_ID level_id)
+	{
+		const auto found = std::find(cut_levels.begin(), cut_levels.end(), level_id);
+		return found == cut_levels.end() ? -1 : int(found - cut_levels.begin());
+	}
+
+	// Engine story_id / spawn_story_id and Anomaly's custom-data [story_object] story_id of a removed template.
+	void log_cut_story(const LPCSTR level_name, CSE_ALifeObject& object)
+	{
+		CInifile& ini = object.spawn_ini();
+		const LPCSTR story_name = ini.line_exist("story_object", "story_id") ? ini.r_string("story_object", "story_id") : nullptr;
+		if (object.m_story_id == INVALID_STORY_ID && object.m_spawn_story_id == INVALID_SPAWN_STORY_ID && !story_name)
+			return;
+		Msg("! [spawn_overlays] %s %s: removed %s (%s) with story_id %d, spawn_story_id %d, story_object '%s' - scripts using it will fail", SECTION_LEVEL_CUT, level_name, object.name_replace(), *object.s_name, object.m_story_id, object.m_spawn_story_id, story_name ? story_name : "");
+	}
+
+	void cut_objects(STemplates& templates, const CGameGraph& graph, const xr_vector<GameGraph::_LEVEL_ID>& cut_levels, u32& removed)
+	{
+		struct SDoomed
+		{
+			ALife::_SPAWN_ID spawn_id;
+			u32 level;
+		};
+		xr_vector<SDoomed> doomed;
+		xr_vector<u32> on_level, changers;
+		on_level.assign(cut_levels.size(), 0);
+		changers.assign(cut_levels.size(), 0);
+
+		for (auto& I : templates.spawns.vertices())
+		{
+			auto* object = smart_cast<CSE_ALifeObject*>(&I.second->data()->object());
+			if (!object)
+				continue;
+			int index = graph.valid_vertex_id(object->m_tGraphID) ? cut_level_index(cut_levels, graph.vertex(object->m_tGraphID)->level_id()) : -1;
+			if (index >= 0)
+			{
+				if (smart_cast<CSE_ALifeCreatureActor*>(object))
+				{
+					Msg("! [spawn_overlays] %s %s: the actor template %s is on this level, kept", SECTION_LEVEL_CUT, *graph.header().level(cut_levels[index]).name(), object->name_replace());
+					continue;
+				}
+				++on_level[index];
+			}
+			else if (const auto* changer = smart_cast<CSE_ALifeLevelChanger*>(object))
+			{
+				const GameGraph::SLevel* destination = graph.header().level(*changer->m_caLevelToChange, true);
+				index = destination ? cut_level_index(cut_levels, destination->id()) : -1;
+				if (index < 0)
+					continue;
+				++changers[index];
+			}
+			else
+				continue;
+			doomed.push_back({I.first, u32(index)});
+		}
+
+		for (const SDoomed& entry : doomed)
+		{
+			auto* object = smart_cast<CSE_ALifeObject*>(&templates.spawns.vertex(entry.spawn_id)->data()->object());
+			log_cut_story(*graph.header().level(cut_levels[entry.level]).name(), *object);
+			string256 name;
+			xr_strcpy(name, object->name_replace());
+			remove_template(templates, name, entry.spawn_id);
+		}
+		removed += doomed.size();
+
+		for (u32 i = 0, n = cut_levels.size(); i < n; ++i)
+			Msg("* [spawn_overlays] %s %s: -%d templates on it, -%d level changers into it", SECTION_LEVEL_CUT, *graph.header().level(cut_levels[i]).name(), on_level[i], changers[i]);
+	}
+
 	const LPCSTR FRAGMENT_MASK = "*.spawn";
 
 	// One level.spawn chunk = one raw M_SPAWN packet (no size prefix, no M_UPDATE part).
@@ -665,18 +757,26 @@ CGameGraph* CSpawnOverlays::apply_graph(const CGameGraph& base, void*& buffer)
 		matching_sections(*m_ini, SECTION_LINKS, link_sections);
 		matching_sections(*m_ini, SECTION_UNLINKS, unlink_sections);
 	}
-	if (offsets.empty() && link_sections.empty() && unlink_sections.empty() && m_packs.empty())
+	const bool cuts = m_ini && section_has_lines(*m_ini, SECTION_LEVEL_CUT);
+	if (offsets.empty() && link_sections.empty() && unlink_sections.empty() && m_packs.empty() && !cuts)
 		return nullptr;
+
+	xr_vector<shared_str> cut_names;
+	LPCSTR key, value;
+	for (int i = 0; cuts && m_ini->r_line(SECTION_LEVEL_CUT, i, &key, &value); ++i)
+		cut_names.push_back(key);
 
 	CGameGraphBuilder builder(base);
 	u32 added = 0, removed = 0;
 	// offsets before the packs: the sync reweights the base edges of a moved level, pack edges keep their weights
 	apply_level_offsets(builder, offsets);
-	const u32 levels = m_packs.append_levels(builder, m_link_tolerance);
+	const u32 levels = m_packs.append_levels(builder, m_link_tolerance, cut_names);
 	for (const LPCSTR section : unlink_sections)
 		apply_unlinks(*m_ini, section, builder, m_link_tolerance, removed);
 	for (const LPCSTR section : link_sections)
 		apply_links(*m_ini, section, builder, m_link_tolerance, added);
+	if (cuts)
+		apply_level_cuts(*m_ini, builder, m_cut_levels, removed);
 
 	if (!builder.dirty())
 		return nullptr;
@@ -699,6 +799,8 @@ void CSpawnOverlays::apply_objects(CALifeSpawnRegistry::SPAWN_GRAPH& spawns, con
 		apply_removes(*m_ini, SECTION_REMOVE, templates, removed);
 		apply_patches(*m_ini, templates, graph, patched);
 	}
+	if (!m_cut_levels.empty())
+		cut_objects(templates, graph, m_cut_levels, removed);
 	m_packs.report_drift(templates, graph);
 
 	if (removed || patched || added)
@@ -714,6 +816,8 @@ void CSpawnOverlays::add_paths(CPatrolPathStorage& storage, const CGameGraph& gr
 		apply_path_removes(*m_ini, storage, removed);
 	if (removed)
 		Msg("* [spawn_overlays] paths: -%d removed", removed);
+	for (const GameGraph::_LEVEL_ID level_id : m_cut_levels)
+		Msg("* [spawn_overlays] %s %s: -%d paths", SECTION_LEVEL_CUT, *graph.header().level(level_id).name(), storage.erase_level(graph, level_id));
 }
 
 void CSpawnOverlays::spawn_guid(const xrGUID& base, xrGUID& result) const

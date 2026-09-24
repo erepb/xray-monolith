@@ -18,6 +18,7 @@
 ;   fix / replace a compiled patrol path                  a patrol_paths.ltx section of the same name, with
 ;                                                         level = <name>
 ;   delete a patrol path                                  [path_remove]
+;   take a whole level out of play                        [level_cut]
 ;
 ; Rules of thumb
 ;   - The base all.spawn always wins over a pack: a pack record that names an object the base already has on
@@ -47,17 +48,20 @@
 ;              (a base level whose level.ai the pack matches and the base does not is rebuilt from the pack)
 ;     -> [graph_unlinks], [graph_unlinks@*]
 ;     -> [graph_links], [graph_links@*]
+;     -> [level_cut]                           every edge to or from the level removed
 ;   all.spawn chunk 1 (spawn templates)
 ;     -> [spawn_replace]                       base templates removed so a copy below is taken
 ;     -> spawns\<level>\*.spawn fragments     records the base lacks added
 ;     -> spawns\<pack>.spawn packs            records the base lacks added (all packs, sorted by file name)
 ;     -> [spawn_remove]                        applies to base and added templates alike
 ;     -> [spawn_patch@*]                       applies to base and added templates alike
+;     -> [level_cut]                           templates on the level and level changers into it removed
 ;   all.spawn chunk 3 (patrol paths)
 ;     -> patrol_paths.ltx sections, with or without a level = <name> key (a section with one replaces a
 ;        compiled path of the same name; one without is skipped on a clash)
 ;     -> packs: paths whose names are new
 ;     -> [path_remove]
+;     -> [level_cut]                           paths on the level removed
 ;   spawn GUID = base GUID + every pack that added or rebuilt a level
 ;
 ; [graph_links] and [graph_unlinks] may also be declared with a suffix ([graph_unlinks@<mod>]): a separate section
@@ -107,6 +111,20 @@ sync_level_offsets = true
 ; Removes patrol paths by name (one per line), after pack paths were added. A patrol_paths.ltx section with
 ; level = <name> and the name of a compiled path replaces that path without a remove.
 [path_remove]
+
+; Takes levels out of play, one level name per line (the value is ignored). The level stays in the game graph -
+; no vertex id changes, so ids baked into scripts and configs keep pointing where they did - but it is cut off:
+; every edge between it and another level, every template on it, every level changer on another level that leads
+; to it, and every patrol path on it are removed, whatever added them (base, fragments, packs, links, patches).
+; A level only a pack brings is not added at all, which also frees its level id for another pack.
+; The actor template is kept (! log). A removed object with a story id (engine story_id / spawn_story_id or a
+; custom-data [story_object] story_id) is logged "!": scripts and tasks that use it must be fixed by the mod
+; that cuts the level, as must configs naming the level's smart terrains (simulation, PDA map, start positions).
+; Anomaly's transitions are sr_teleport space restrictors (sr_teleport_sections.ltx) standing on the neighbouring
+; levels: they carry the PDA spot and the travel prompt, and are not level changers, so list them in
+; [spawn_remove] (e.g. esc_space_restrictor_to_pole_1 when cutting y04_pole).
+; Save-compatible like [spawn_remove]; objects an older save already holds stay on the level, unreachable.
+[level_cut]
 
 ; Edits one spawn template; the section suffix is the object name. Keys, all optional:
 ;   match_position = x, y, z          selects the instance when the name is shared (within 0.5 m)

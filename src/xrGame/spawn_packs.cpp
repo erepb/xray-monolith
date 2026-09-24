@@ -561,8 +561,14 @@ bool CSpawnPacks::installed_level_guid(const LPCSTR level_name, xrGUID& guid)
 	return ok;
 }
 
-u32 CSpawnPacks::append_levels(CGameGraphBuilder& builder, float tolerance)
+bool CSpawnPacks::cut(const LPCSTR level_name) const
 {
+	return std::find(m_cut_levels.begin(), m_cut_levels.end(), shared_str(level_name)) != m_cut_levels.end();
+}
+
+u32 CSpawnPacks::append_levels(CGameGraphBuilder& builder, float tolerance, const xr_vector<shared_str>& cut_levels)
+{
+	m_cut_levels = cut_levels;
 	xr_map<shared_str, GameGraph::_LEVEL_ID> auto_ids;
 	allocate_auto_ids(builder.header(), auto_ids);
 	u32 changed = 0;
@@ -581,6 +587,12 @@ u32 CSpawnPacks::append_levels(CGameGraphBuilder& builder, float tolerance)
 			const GameGraph::SLevel* present = builder.level(level_name);
 			if (present && present->guid() == level.guid())
 				continue;
+			if (!present && cut(level_name))
+			{
+				Msg("* [spawn_overlays] pack %s: level '%s' is in [level_cut], not added", file_name, level_name);
+				++pack.missing_levels;
+				continue;
+			}
 
 			xrGUID installed{};
 			if (!installed_level_guid(level_name, installed))
@@ -782,6 +794,8 @@ u32 CSpawnPacks::add_objects(STemplates& templates, const CGameGraph& graph)
 					if (pack_spawn_id < pack.legacy_spawn_ids.size())
 						pack.legacy_spawn_ids[pack_spawn_id] = match;
 				}
+				else if (level_missing && cut(reason))
+					++pack.cut_records;
 				else if (level_missing)
 				{
 					Msg("- [spawn_overlays] pack %s: %s is on level '%s' which is not installed, skipped", file_name, name, reason);
@@ -801,7 +815,9 @@ u32 CSpawnPacks::add_objects(STemplates& templates, const CGameGraph& graph)
 				result = place_pack_object(*dynamic_object, pack, graph, reason);
 			if (result != 1)
 			{
-				if (result < 0)
+				if (result < 0 && cut(reason))
+					++pack.cut_records;
+				else if (result < 0)
 				{
 					Msg("- [spawn_overlays] pack %s: %s is on level '%s' which is not installed, skipped", file_name, object->name_replace(), reason);
 					++no_level;
@@ -888,7 +904,9 @@ u32 CSpawnPacks::add_paths(CPatrolPathStorage& storage, const CGameGraph& graph)
 				++added;
 				continue;
 			}
-			if (result < 0)
+			if (result < 0 && cut(reason))
+				++pack.cut_paths;
+			else if (result < 0)
 			{
 				Msg("- [spawn_overlays] pack %s: path %s is on level '%s' which is not installed, skipped", file_name, *name, reason);
 				++pack.no_level_paths;
@@ -912,11 +930,13 @@ void CSpawnPacks::finish(const xrGUID& base_guid, xrGUID& result) const
 		const LPCSTR file_name = *pack.file_name;
 		const bool changes_levels = !pack.appended.empty() || !pack.substituted.empty();
 		const bool has_content = changes_levels || pack.objects || pack.paths;
+		if (pack.cut_records || pack.cut_paths)
+			Msg("* [spawn_overlays] pack %s: %d records and %d paths on or into [level_cut] levels skipped", file_name, pack.cut_records, pack.cut_paths);
 		if (!has_content)
 		{
 			if (pack.missing_levels || pack.no_level || pack.no_level_paths)
-				Msg("- [spawn_overlays] pack %s: %d levels not installed, %d records and %d paths on them skipped", file_name, pack.missing_levels, pack.no_level, pack.no_level_paths);
-			else
+				Msg("- [spawn_overlays] pack %s: %d levels not installed or cut, %d records and %d paths on missing levels skipped", file_name, pack.missing_levels, pack.no_level, pack.no_level_paths);
+			else if (!pack.cut_records && !pack.cut_paths)
 				Msg("* [spawn_overlays] pack %s: nothing new, ignored", file_name);
 			continue;
 		}

@@ -219,6 +219,24 @@ void CPatrolPathStorage::approximate_level(const CGameGraph& graph, const GameGr
 	Msg("* [spawn_overlays] patrol paths: %d points on %s will be re-snapped to its new AI map", marked, *graph.header().level(level_id).name());
 }
 
+u32 CPatrolPathStorage::erase_level(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id)
+{
+	u32 erased = 0;
+	for (u32 i = 0; i < m_registry.size();)
+	{
+		const auto I = m_registry.begin() + i;
+		if (!I->second->on_level(graph, level_id))
+		{
+			++i;
+			continue;
+		}
+		xr_delete(I->second);
+		m_registry.erase(I);
+		++erased;
+	}
+	return erased;
+}
+
 void CPatrolPathStorage::save(IWriter& stream)
 {
 	stream.open_chunk(0);

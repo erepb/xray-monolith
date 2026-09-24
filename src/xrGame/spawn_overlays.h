@@ -23,21 +23,25 @@ namespace spawn_overlays
 		float m_link_tolerance;
 		bool m_sync_offsets;
 		CSpawnPacks m_packs;
+		// [level_cut] levels present in the graph, resolved by apply_graph; ids never change afterwards
+		xr_vector<GameGraph::_LEVEL_ID> m_cut_levels;
 
 	public:
 		explicit CSpawnOverlays(LPCSTR base_spawn_name);
 		~CSpawnOverlays();
 
-		// Appends the levels of packs, syncs level offsets to game.ltx [levelNN] and applies [graph_links] /
-		// [graph_unlinks]. Returns a graph over buffer (xr_malloc, caller owns) or nullptr when the base graph is
-		// unchanged.
+		// Appends the levels of packs, syncs level offsets to game.ltx [levelNN], applies [graph_links] /
+		// [graph_unlinks], then cuts the [level_cut] levels off every other level. Returns a graph over buffer
+		// (xr_malloc, caller owns) or nullptr when the base graph is unchanged.
 		CGameGraph* apply_graph(const CGameGraph& base, void*& buffer);
 		// Applies [spawn_replace] to the base templates, adds the records of $game_spawn$\<level_name>\*.spawn
 		// fragments (SDK level.spawn format) as templates of that level and the pack records the base lacks, then
-		// applies [spawn_remove] and [spawn_patch@<name>] to base and added templates alike. graph must already be
-		// the assembled one.
+		// applies [spawn_remove] and [spawn_patch@<name>] to base and added templates alike, then removes the
+		// templates on [level_cut] levels and the level changers leading to them. graph must already be the
+		// assembled one.
 		void apply_objects(CALifeSpawnRegistry::SPAWN_GRAPH& spawns, const CGameGraph& graph);
-		// Adds the pack paths whose names storage lacks, remapped to graph, then applies [path_remove].
+		// Adds the pack paths whose names storage lacks, remapped to graph, applies [path_remove], then erases the
+		// paths on [level_cut] levels.
 		void add_paths(CPatrolPathStorage& storage, const CGameGraph& graph);
 		// Spawn GUID of base plus every contributing pack.
 		void spawn_guid(const xrGUID& base, xrGUID& result) const;

@@ -125,6 +125,19 @@ u32 CPatrolPath::approximate_level(const CGameGraph& graph, const GameGraph::_LE
 	return marked;
 }
 
+bool CPatrolPath::on_level(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id) const
+{
+	for (const auto& I : vertices())
+	{
+		const CPatrolPoint& point = I.second->data();
+		if (point.level_vertex_id(nullptr, nullptr, &graph) == u32(-1))
+			continue;
+		const GameGraph::_GRAPH_ID vertex_id = point.game_vertex_id(nullptr, nullptr, &graph);
+		return graph.valid_vertex_id(vertex_id) && graph.vertex(vertex_id)->level_id() == level_id;
+	}
+	return false;
+}
+
 bool CPatrolPath::parse_point_link(const std::string& link, const std::map<shared_str, u32>& vertex_ids_by_name, std::pair<u16, float>& result, string256& reason)
 {
 	Msg("[PP] Linking %s", link.c_str());

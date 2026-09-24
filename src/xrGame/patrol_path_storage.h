@@ -47,6 +47,8 @@ public:
 	void merge(CPatrolPathStorage& source, MOVED_PATHS& moved);
 	void erase(const shared_str& name);
 	void approximate_level(const CGameGraph& graph, GameGraph::_LEVEL_ID level_id);
+	// Erases the paths on level_id (CPatrolPath::on_level); returns their count.
+	u32 erase_level(const CGameGraph& graph, GameGraph::_LEVEL_ID level_id);
 	IC const CPatrolPath* path(shared_str patrol_name, bool no_assert = false) const;
 	IC const PATROL_REGISTRY& patrol_paths() const;
 };

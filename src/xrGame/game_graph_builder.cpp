@@ -154,6 +154,30 @@ u32 CGameGraphBuilder::remove_level_edges(const GameGraph::_LEVEL_ID level_a, co
 	return removed;
 }
 
+u32 CGameGraphBuilder::isolate_level(const GameGraph::_LEVEL_ID level_id)
+{
+	u32 removed = 0;
+	for (SVertex& vertex : m_vertices)
+	{
+		const bool from_level = vertex.data.level_id() == level_id;
+		xr_vector<SEdge>& edges = vertex.edges;
+		for (u32 j = 0; j < edges.size();)
+		{
+			if (from_level == (m_vertices[edges[j].vertex_id].data.level_id() == level_id))
+			{
+				++j;
+				continue;
+			}
+			edges.erase(edges.begin() + j);
+			++removed;
+		}
+	}
+	m_edge_count -= removed;
+	if (removed)
+		m_dirty = true;
+	return removed;
+}
+
 u32 CGameGraphBuilder::set_level_offset(const GameGraph::_LEVEL_ID level_id, const Fvector& offset)
 {
 	const auto level = m_header.m_levels.find(level_id);
