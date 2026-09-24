@@ -30,7 +30,7 @@ namespace
 		FS.update_path(file_name, "$game_config$", OVERLAY_FILE);
 		if (FS.exist(file_name))
 			return true;
-		Msg("* [spawn_overlays] %s not found: graph_links/graph_unlinks/spawn_remove/spawn_patch are off; level packs, spawns\\<level>\\*.spawn fragments, offset sync and patrol_paths.ltx 'level =' sections still apply", OVERLAY_FILE);
+		Msg("* [spawn_overlays] %s not found: graph_links/graph_unlinks/spawn_remove/spawn_patch are off; level packs, spawns\\<level>\\*.spawn and *.game fragments, offset sync and patrol_paths.ltx 'level =' sections still apply", OVERLAY_FILE);
 		return false;
 	}
 
@@ -651,6 +651,19 @@ namespace
 		return 1;
 	}
 
+	const GameGraph::SLevel* fragment_level(const LPCSTR relative, const CGameGraph& graph, string256& level_name)
+	{
+		const LPCSTR separator = strchr(relative, '\\');
+		if (!separator || strchr(separator + 1, '\\'))
+			return nullptr;
+
+		strncpy_s(level_name, relative, size_t(separator - relative));
+		const GameGraph::SLevel* level = graph.header().level(level_name, true);
+		if (!level)
+			Msg("- [spawn_overlays] spawns\\%s: level '%s' is not installed, skipped", relative, level_name);
+		return level;
+	}
+
 	void apply_fragments(STemplates& templates, const CGameGraph& graph, u32& added)
 	{
 		FS_FileSet files;
@@ -659,18 +672,10 @@ namespace
 		for (const auto& I : files)
 		{
 			const LPCSTR relative = I.name.c_str();
-			const LPCSTR separator = strchr(relative, '\\');
-			if (!separator || strchr(separator + 1, '\\'))
-				continue;
-
 			string256 level_name;
-			strncpy_s(level_name, relative, size_t(separator - relative));
-			const GameGraph::SLevel* level = graph.header().level(level_name, true);
+			const GameGraph::SLevel* level = fragment_level(relative, graph, level_name);
 			if (!level)
-			{
-				Msg("- [spawn_overlays] spawns\\%s: level '%s' is not installed, skipped", relative, level_name);
 				continue;
-			}
 
 			IReader* file = FS.r_open("$game_spawn$", relative);
 			if (!file)
@@ -720,6 +725,40 @@ namespace
 
 			added += file_added;
 			Msg("* [spawn_overlays] spawns\\%s: +%d templates on %s, %d already present, %d skipped, %d graph points ignored", relative, file_added, level_name, present, skipped, graph_points);
+		}
+	}
+
+	const LPCSTR PATH_FRAGMENT_MASK = "*.game";
+
+	// SDK level.game files: spawns\<level>\<anything>.game. A path whose name storage already has is skipped
+	// silently, so a whole-level export adds only the level's new paths.
+	void apply_path_fragments(CPatrolPathStorage& storage, const CGameGraph& graph, u32& added)
+	{
+		FS_FileSet files;
+		FS.file_list(files, "$game_spawn$", FS_ListFiles, PATH_FRAGMENT_MASK);
+
+		for (const auto& I : files)
+		{
+			const LPCSTR relative = I.name.c_str();
+			string256 level_name;
+			const GameGraph::SLevel* level = fragment_level(relative, graph, level_name);
+			if (!level)
+				continue;
+
+			IReader* file = FS.r_open("$game_spawn$", relative);
+			if (!file)
+			{
+				Msg("! [spawn_overlays] spawns\\%s: cannot open", relative);
+				continue;
+			}
+			CPatrolPathStorage source;
+			const u32 skipped = source.load_fragment(graph, level->id(), *file, relative);
+			FS.r_close(file);
+
+			CPatrolPathStorage::MOVED_PATHS moved;
+			storage.merge(source, moved);
+			added += moved.size();
+			Msg("* [spawn_overlays] spawns\\%s: +%d paths on %s, %d already present, %d skipped", relative, moved.size(), level_name, source.patrol_paths().size(), skipped);
 		}
 	}
 }
@@ -809,6 +848,10 @@ void CSpawnOverlays::apply_objects(CALifeSpawnRegistry::SPAWN_GRAPH& spawns, con
 
 void CSpawnOverlays::add_paths(CPatrolPathStorage& storage, const CGameGraph& graph)
 {
+	u32 fragment_paths = 0;
+	apply_path_fragments(storage, graph, fragment_paths);
+	if (fragment_paths)
+		Msg("* [spawn_overlays] paths: +%d from spawns\\<level>\\*.game fragments", fragment_paths);
 	if (const u32 added = m_packs.add_paths(storage, graph))
 		Msg("* [spawn_overlays] paths: +%d from packs", added);
 	u32 removed = 0;

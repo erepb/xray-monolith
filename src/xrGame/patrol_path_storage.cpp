@@ -48,6 +48,53 @@ void CPatrolPathStorage::load_raw(const CLevelGraph* level_graph, const CGameLev
 	chunk->close();
 }
 
+u32 CPatrolPathStorage::load_fragment(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id, IReader& stream, const LPCSTR source)
+{
+	IReader* chunk = stream.open_chunk(WAY_PATROLPATH_CHUNK);
+	if (!chunk)
+		return 0;
+
+	u32 skipped = 0;
+	u32 chunk_iterator;
+	for (IReader* sub_chunk = chunk->open_chunk_iterator(chunk_iterator); sub_chunk; sub_chunk = chunk->open_chunk_iterator(chunk_iterator, sub_chunk))
+	{
+		if (!sub_chunk->find_chunk(WAYOBJECT_CHUNK_NAME))
+		{
+			Msg("! [spawn_overlays] spawns\\%s path #%d: no name, skipped", source, chunk_iterator);
+			++skipped;
+			continue;
+		}
+		shared_str patrol_name;
+		sub_chunk->r_stringZ(patrol_name);
+
+		if (!sub_chunk->find_chunk(WAYOBJECT_CHUNK_VERSION) || sub_chunk->r_u16() != WAYOBJECT_VERSION)
+		{
+			Msg("! [spawn_overlays] spawns\\%s path %s: not a version %d way object, skipped", source, *patrol_name, WAYOBJECT_VERSION);
+			++skipped;
+			continue;
+		}
+		if (m_registry.find(patrol_name) != m_registry.end())
+		{
+			Msg("! [spawn_overlays] spawns\\%s path %s: named twice in the file, skipped", source, *patrol_name);
+			++skipped;
+			continue;
+		}
+
+		auto* patrol_path = xr_new<CPatrolPath>(patrol_name);
+		if (string256 reason; !patrol_path->load_fragment(graph, level_id, *sub_chunk, reason))
+		{
+			Msg("! [spawn_overlays] spawns\\%s path %s: %s, skipped", source, *patrol_name, reason);
+			xr_delete(patrol_path);
+			++skipped;
+			continue;
+		}
+		m_registry.insert(std::make_pair(patrol_name, patrol_path));
+	}
+
+	chunk->close();
+	return skipped;
+}
+
 void CPatrolPathStorage::load(IReader& stream)
 {
 	IReader* chunk;

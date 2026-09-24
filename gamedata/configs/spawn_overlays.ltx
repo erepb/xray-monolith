@@ -14,7 +14,9 @@
 ;   delete a vanilla object                               [spawn_remove]
 ;   edit a vanilla object (position, logic, story id)     [spawn_patch@<name>]
 ;   swap a vanilla object for my pack's / fragment's copy [spawn_replace]  (same name, same place)
-;   add patrol paths                                      patrol_paths.ltx sections with a level = <name> key
+;   add patrol paths                                      a level.game fragment: spawns\<level>\<anything>.game
+;                                                         (SDK export), or patrol_paths.ltx sections with a
+;                                                         level = <name> key
 ;   fix / replace a compiled patrol path                  a patrol_paths.ltx section of the same name, with
 ;                                                         level = <name>
 ;   delete a patrol path                                  [path_remove]
@@ -59,6 +61,7 @@
 ;   all.spawn chunk 3 (patrol paths)
 ;     -> patrol_paths.ltx sections, with or without a level = <name> key (a section with one replaces a
 ;        compiled path of the same name; one without is skipped on a clash)
+;     -> spawns\<level>\*.game fragments      paths whose names are new
 ;     -> packs: paths whose names are new
 ;     -> [path_remove]
 ;     -> [level_cut]                           paths on the level removed
@@ -160,6 +163,11 @@ sync_level_offsets = true
 ; them from the position at load and snaps them to the AI map when the level is entered, as xrAI would have compiled
 ; them. A section with level = <name> named like a compiled path replaces it (* log); a section without cannot. Any
 ; section that cannot be loaded (missing key, unknown link target) is skipped and logged instead of failing.
+; The binary equivalent is an SDK level.game (LevelEditor "Build" output, next to level.spawn) dropped into
+; spawns\<level_name>\<anything>.game: its paths are loaded the same way, approximated and snapped on that level.
+; A path whose name is already known (compiled, patrol_paths.ltx, an earlier fragment) is skipped silently, so a
+; whole-level export adds only the level's new paths; to replace a compiled path use a patrol_paths.ltx section.
+; Only the patrol path chunk is read; the multiplayer respawn points in level.game are ignored.
 ;   [my_mod_walk]
 ;   level = l01_escape
 ;   points = p0,p1

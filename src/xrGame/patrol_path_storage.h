@@ -42,6 +42,7 @@ public:
 	typedef xr_vector<std::pair<shared_str, CPatrolPath*> > MOVED_PATHS;
 
 	void load_raw(const CLevelGraph* level_graph, const CGameLevelCrossTable* cross, const CGameGraph* game_graph, IReader& stream);
+	u32 load_fragment(const CGameGraph& graph, GameGraph::_LEVEL_ID level_id, IReader& stream, LPCSTR source);
 	// Snaps the config paths of the loaded level that were approximated at load
 	void resolve_level(const CLevelGraph* level_graph, const CGameLevelCrossTable* cross, const CGameGraph* game_graph);
 	void merge(CPatrolPathStorage& source, MOVED_PATHS& moved);

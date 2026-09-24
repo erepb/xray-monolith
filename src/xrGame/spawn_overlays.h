@@ -40,8 +40,8 @@ namespace spawn_overlays
 		// templates on [level_cut] levels and the level changers leading to them. graph must already be the
 		// assembled one.
 		void apply_objects(CALifeSpawnRegistry::SPAWN_GRAPH& spawns, const CGameGraph& graph);
-		// Adds the pack paths whose names storage lacks, remapped to graph, applies [path_remove], then erases the
-		// paths on [level_cut] levels.
+		// Adds the paths of $game_spawn$\<level_name>\*.game fragments (SDK level.game format) and of packs whose
+		// names storage lacks, remapped to graph, applies [path_remove], then erases the paths on [level_cut] levels.
 		void add_paths(CPatrolPathStorage& storage, const CGameGraph& graph);
 		// Spawn GUID of base plus every contributing pack.
 		void spawn_guid(const xrGUID& base, xrGUID& result) const;

@@ -101,6 +101,50 @@ bool CPatrolPath::load_from_config(const CInifile* ini_paths, const LPCSTR patro
 	return true;
 }
 
+bool CPatrolPath::load_fragment(const CGameGraph& graph, const GameGraph::_LEVEL_ID level_id, IReader& stream, string256& reason)
+{
+	if (!stream.find_chunk(WAYOBJECT_CHUNK_POINTS))
+	{
+		xr_strcpy(reason, "no points chunk");
+		return false;
+	}
+	const u32 vertex_count = stream.r_u16();
+	for (u32 i = 0; i < vertex_count; ++i)
+	{
+		CPatrolPoint point(this);
+		point.load_raw(nullptr, nullptr, nullptr, stream);
+		u32 nearest;
+		float distance;
+		if (!graph.nearest_vertex(level_id, point.position(), nearest, distance))
+		{
+			xr_strcpy(reason, "the level has no game vertices");
+			return false;
+		}
+		point.relocate(graph, GameGraph::_GRAPH_ID(nearest), true);
+		add_vertex(point, i);
+	}
+
+	if (!stream.find_chunk(WAYOBJECT_CHUNK_LINKS))
+	{
+		xr_strcpy(reason, "no links chunk");
+		return false;
+	}
+	const u32 edge_count = stream.r_u16();
+	for (u32 i = 0; i < edge_count; ++i)
+	{
+		const u16 vertex0 = stream.r_u16();
+		const u16 vertex1 = stream.r_u16();
+		const float probability = stream.r_float();
+		if (vertex0 >= vertex_count || vertex1 >= vertex_count)
+		{
+			xr_sprintf(reason, "link %d -> %d names a point past the last one (%d)", vertex0, vertex1, vertex_count);
+			return false;
+		}
+		add_edge(vertex0, vertex1, probability);
+	}
+	return true;
+}
+
 u32 CPatrolPath::resolve(const CLevelGraph* level_graph, const CGameLevelCrossTable* cross, const CGameGraph* game_graph)
 {
 	u32 resolved = 0;
