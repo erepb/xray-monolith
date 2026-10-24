@@ -28,20 +28,18 @@ namespace perception
 			Fvector from, to;
 			float transmittance;
 			occluder_class dominant;
+			float freshness; // 1 = traced now, falling toward 0 with age; dims the end box
 		};
 
-		struct chord_record
-		{
-			Fvector enter, exit;
-			float blocked; // 0..1 opaque fraction of this crossing
-		};
-
-		struct point_record
+		// v1's own sample point for the same pair, so v1 and v2 read side by side on one body.
+		struct v1_point_record
 		{
 			Fvector pos;
-			occluder_class cls;
-			float t;
+			bool visible;
 		};
+
+		typedef veg_chord chord_record;
+		typedef hit_mark point_record;
 
 		// Records are semantic, not geometric: a ray carries its transmittance, never a colour, so
 		// the legend in a screenshot and the numbers in the log cannot drift apart.
@@ -55,6 +53,7 @@ namespace perception
 			void add(const ray_record& r);
 			void add(const chord_record& c);
 			void add(const point_record& p);
+			void add(const v1_point_record& p);
 
 			// Sticky set: survives frames until explicitly cleared. This is what makes a one-shot
 			// probe inspectable - trace once, then fly around and look at it.
@@ -75,6 +74,7 @@ namespace perception
 				xr_vector<ray_record> rays;
 				xr_vector<chord_record> chords;
 				xr_vector<point_record> points;
+				xr_vector<v1_point_record> v1_points;
 
 				void clear();
 				void swap(buffer& o);

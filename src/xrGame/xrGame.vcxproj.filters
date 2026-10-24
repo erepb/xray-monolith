@@ -7562,6 +7562,24 @@
     <ClCompile Include="perception\atmosphere.cpp">
       <Filter>Perception</Filter>
     </ClCompile>
+    <ClInclude Include="perception\bone_shape.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClCompile Include="perception\bone_shape.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClInclude Include="perception\vision_sampler.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClCompile Include="perception\vision_sampler.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClInclude Include="perception\shadow_harness.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClCompile Include="perception\shadow_harness.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
     <ClCompile Include="visual_memory_params.cpp">
       <Filter>AI\AComponents\MemoryManager\raw_data_managers\VisualMemoryManager\visual_memory_params</Filter>
     </ClCompile>

@@ -1,11 +1,13 @@
-; Vision 2.0 - occlusion primitive tunables (Stage 2).
-; Read once per level load by perception::occlusion_model. Every key is listed at its default
-; so the shipped values are discoverable here rather than only in the C++ initialisers.
+; Vision 2.0 - occlusion primitive and vision sampler tunables.
+; Read once per level load; a console change to a live key (perception_ray_extend,
+; perception_foliage_k, perception_canopy_k, perception_atmosphere_k) lasts until then.
+; Every key is listed at its default so the shipped values are discoverable here rather than only in
+; the C++ initialisers.
 
 [occlusion_model]
 
-; Metres the ray is extended past the target before hit testing.
-; 0.20 reproduces v1, which bakes the same overshoot into its range (Feel_Vision.cpp:212).
+; Metres the ray continues past the body point it aims at. Anything in that last stretch counts as
+; blocking the point. Tunable live from the console as perception_ray_extend.
 ray_extend                     = 0.20
 
 ; Trim on the measured grass optical depth:
@@ -48,3 +50,12 @@ resolve_budget                 = 64
 ; Grass slots kept once worked out (~320 bytes each, 8192 is about 2.6 MB). Too small and the same
 ; slots are worked out again every few seconds, which spends the budget above. Range 1024-262144.
 resolve_cache_slots            = 8192
+
+[vision_sampler]
+
+; Body points traced per tracked target, per NPC, per vision update; each costs one ray (10 tracked
+; creatures at 4 points = 40 rays). Points rotate over the body's hit shapes, so every shape is sampled
+; equally often whatever the outcome. More points keep the picture of a moving target fresher.
+; Range 1-64. Only used while perception_shadow or perception_explain is on; NPC detection does not
+; use it yet.
+points                         = 4

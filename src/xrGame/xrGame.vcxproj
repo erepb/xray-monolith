@@ -1970,6 +1970,9 @@
     <ClInclude Include="perception\occlusion_query.h" />
     <ClInclude Include="perception\static_occlusion_cache.h" />
     <ClInclude Include="perception\atmosphere.h" />
+    <ClInclude Include="perception\bone_shape.h" />
+    <ClInclude Include="perception\vision_sampler.h" />
+    <ClInclude Include="perception\shadow_harness.h" />
     <ClInclude Include="visual_memory_manager_inline.h" />
     <ClInclude Include="visual_memory_params.h" />
     <ClInclude Include="wallmark_manager.h" />
@@ -4218,6 +4221,9 @@
     <ClCompile Include="perception\static_occlusion_cache.cpp" />
     <ClCompile Include="perception\perception_console.cpp" />
     <ClCompile Include="perception\atmosphere.cpp" />
+    <ClCompile Include="perception\bone_shape.cpp" />
+    <ClCompile Include="perception\vision_sampler.cpp" />
+    <ClCompile Include="perception\shadow_harness.cpp" />
     <ClCompile Include="wallmark_manager.cpp" />
     <ClCompile Include="Weapon.cpp" />
     <ClCompile Include="WeaponAK74.cpp">

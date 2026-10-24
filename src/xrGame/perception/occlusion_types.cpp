@@ -50,24 +50,6 @@ namespace perception
 		return collide::ray_defs(from, dir, length + extend, flags, tgt);
 	}
 
-	void segment::split(float at, segment& head, segment& tail) const
-	{
-		clamp(at, 0.f, length);
-
-		Fvector mid;
-		mid.mad(from, dir, at);
-
-		head.from = from;
-		head.to = mid;
-		head.dir = dir;
-		head.length = at;
-
-		tail.from = mid;
-		tail.to = to;
-		tail.dir = dir;
-		tail.length = length - at;
-	}
-
 	void occlusion_result::reset()
 	{
 		for (u32 i = 0; i < occ_class_count; ++i)
@@ -83,8 +65,8 @@ namespace perception
 		fallback_hits = 0;
 		foliage_unresolved = 0;
 		degraded = 0;
-		total_length = 0.f;
-		head_y = 0.f;
+		self_hits = 0;
+		self_range = flt_max;
 		hit_count = 0;
 		from_cache_depth = false;
 		from_cache_geom = false;

@@ -30,9 +30,8 @@ namespace perception
 
 	LPCSTR degraded_reason_name(u32 bit);
 
-	// The one place a pair of points becomes a ray. v1 rebuilds this inline at four call sites and
-	// bakes a +0.2 m overshoot into the range (Feel_Vision.cpp:212); here the overshoot is an explicit
-	// argument, so nothing inherits it by accident.
+	// The one place a pair of points becomes a ray. v1 rebuilds this inline at four call sites; here
+	// any extension past the end is an explicit argument, so nothing inherits it by accident.
 	struct segment
 	{
 		Fvector from;
@@ -46,9 +45,6 @@ namespace perception
 		static bool make(const Fvector& a, const Fvector& b, segment& out);
 
 		collide::ray_defs to_ray_defs(u32 flags, collide::rq_target tgt, float extend) const;
-
-		// Exact prefix/tail split. `head` runs from..at, `tail` runs at..to.
-		void split(float at, segment& head, segment& tail) const;
 	};
 
 	// Where a ray met an occluder. Lives here rather than in the debug header so occlusion_query can
@@ -67,6 +63,10 @@ namespace perception
 		Fvector enter, exit;
 		float blocked; // 0..1 fraction of this crossing that is opaque
 	};
+
+	// A point on the near surface is hit by its own shape at the end of the segment, give or take
+	// float noise; only a hit clearly nearer than that means the body is in front of the point.
+	static const float SELF_EPS = 0.05f;
 
 	struct occlusion_result
 	{
@@ -102,14 +102,17 @@ namespace perception
 
 		u8 degraded; // degraded_reason bits
 
-		// Path length this result describes. Atmospheric extinction is a property of the WHOLE path,
-		// not of a sub-segment: for a normalized-distance curve T(a+b) != T(a)*T(b), so trace_tail
-		// recomputes that channel from the combined length instead of multiplying it.
-		float total_length;
+		// Hits on the target itself, skipped: a point is hidden only when something else is in the
+		// way. self_range is the nearest of them along the ray, flt_max when none - nearer than the
+		// segment's end means the point faces away from the eye.
+		u16 self_hits;
+		float self_range;
 
-		// Origin height of the whole path. Needed because the atmospheric height rule is a min over
-		// both ends, and a tail alone does not know where the prefix started.
-		float head_y;
+		// The target's own body lies between the eye and the point; `length` is the segment's.
+		bool self_occluded(float length) const
+		{
+			return self_hits && (self_range < length - SELF_EPS);
+		}
 
 		u16 hit_count;
 		// Kept separate because the two halves of the cache have different tolerances, and because
@@ -129,8 +132,7 @@ namespace perception
 
 		void reset();
 
-		// Collapses the channels. Kept separate from accumulation so the prefix/tail form can
-		// accumulate into one result across two traces and collapse once.
+		// Collapses the channels into transmittance and dominant.
 		void finish();
 	};
 }

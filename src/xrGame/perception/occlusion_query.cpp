@@ -3,6 +3,7 @@
 #include "atmosphere.h"
 #include "canopy_oracle.h"
 #include "perception_debug.h"
+#include "shadow_harness.h"
 #include "../Level.h"
 #include "../entity_alive.h"
 #include "../../Include/xrRender/Kinematics.h"
@@ -30,7 +31,7 @@ namespace perception
 		return vis;
 	}
 
-	static u16 material_of(const collide::rq_result& h)
+	u16 material_of(const collide::rq_result& h)
 	{
 		if (h.O)
 		{
@@ -84,57 +85,21 @@ namespace perception
 		m_ready = false;
 	}
 
-	bool occlusion_query::trace(const segment& seg, u32 rq_flags, CObject* ignore,
+#ifdef SPATIAL_CHANGE
+	// Same rule as v1's test callback (Feel_Vision.cpp:53-61): objects flagged for vision to ignore,
+	// such as a mounted gun in use, are not tested at all.
+	static BOOL feel_vision_ignore(const collide::ray_defs&, CObject* object, LPVOID)
+	{
+		return (object->spatial.type & STYPE_FEELVISIONIGNORE) ? FALSE : TRUE;
+	}
+
+	collide::test_callback* vision_test_callback() { return feel_vision_ignore; }
+#else
+	collide::test_callback* vision_test_callback() { return 0; }
+#endif
+
+	bool occlusion_query::trace(const segment& seg, u32 rq_flags, CObject* ignore, const CObject* target,
 	                            occlusion_result& out) const
-	{
-		return trace_impl(seg, rq_flags, ignore, out);
-	}
-
-	bool occlusion_query::trace_head(const segment& head, u32 rq_flags, CObject* ignore,
-	                                 occlusion_result& out) const
-	{
-		return trace_impl(head, rq_flags, ignore, out);
-	}
-
-	bool occlusion_query::trace_tail(const occlusion_result& head_result, const segment& tail,
-	                                 u32 rq_flags, CObject* ignore, occlusion_result& out) const
-	{
-		if (!trace_impl(tail, rq_flags, ignore, out))
-			return false;
-
-		// Channels compose multiplicatively, which is the whole reason they are transmittance rather
-		// than occlusion - the prefix and the tail simply multiply. Atmosphere is the exception: it
-		// is a function of the whole path, and for a normalized-distance curve T(a+b) != T(a)*T(b)
-		// (stock linear gives (1-a)(1-b) = 1-a-b+ab, not 1-(a+b)). So it is recomputed below.
-		for (u32 i = 0; i < occ_class_count; ++i)
-		{
-			if (i == occ_atmosphere)
-				continue;
-			out.channel[i] *= head_result.channel[i];
-		}
-
-		out.total_length = head_result.total_length + tail.length;
-		out.channel[occ_atmosphere] = m_model.atmosphere_transmittance(atmosphere::instance().transmittance(
-			out.total_length, atmosphere::resolve_height(head_result.head_y, tail.to.y)));
-
-		out.foliage_tau += head_result.foliage_tau;
-		out.canopy_tau += head_result.canopy_tau;
-		out.canopy_cells = u16(out.canopy_cells + head_result.canopy_cells);
-		out.foliage_unresolved += head_result.foliage_unresolved;
-		out.deferred_hits = u16(out.deferred_hits + head_result.deferred_hits);
-		out.deferred_t *= head_result.deferred_t;
-		out.fallback_hits = u16(out.fallback_hits + head_result.fallback_hits);
-		out.degraded |= head_result.degraded;
-		out.hit_count = u16(out.hit_count + head_result.hit_count);
-		if (head_result.dominant_material.size() && !out.dominant_material.size())
-			out.dominant_material = head_result.dominant_material;
-
-		out.finish();
-		return true;
-	}
-
-	bool occlusion_query::trace_impl(const segment& seg, u32 rq_flags, CObject* ignore,
-	                                 occlusion_result& out) const
 	{
 		out.reset();
 		if (!m_ready)
@@ -170,7 +135,7 @@ namespace perception
 		const collide::rq_target tgt = collide::rq_target(collide::rqtStatic | dyn);
 
 		const collide::ray_defs rd = seg.to_ray_defs(rq_flags, tgt, m_model.ray_extend);
-		Level().ObjectSpace.RayQuery(m_hits, rd, 0, 0, 0, ignore);
+		Level().ObjectSpace.RayQuery(m_hits, rd, 0, 0, vision_test_callback(), ignore);
 
 		float worst = 1.f;
 		const float limit = seg.length + m_model.ray_extend;
@@ -199,6 +164,14 @@ namespace perception
 			{
 				if (h->range > limit)
 					break; // sorted, so nothing past here is on the segment either
+
+				if (target && h->O == target)
+				{
+					if (!out.self_hits)
+						out.self_range = h->range;
+					++out.self_hits;
+					continue;
+				}
 
 				const u16 mtl = material_of(*h);
 				occluder_class c = classify(*h, mtl, m_table);
@@ -320,9 +293,7 @@ namespace perception
 
 		// Atmospheric extinction: O(1), no ray, no cache - a table lookup against the current fog
 		// envelope. It is the only channel that is a property of the path rather than of what lies
-		// along it, which is why trace_tail recomputes rather than multiplies it.
-		out.total_length = seg.length;
-		out.head_y = seg.from.y;
+		// along it.
 		out.channel[occ_atmosphere] = m_model.atmosphere_transmittance(atmosphere::instance().transmittance(seg));
 		if (atmosphere::instance().unmeasured())
 			out.degraded |= deg_atmo_unmeasured;
@@ -355,10 +326,12 @@ namespace perception
 		{
 			atmosphere::instance().on_level_load();
 			occlusion_query::instance().on_level_load();
+			PDBG_ONLY(shadow::on_level_load());
 		}
 
 		void on_level_unload()
 		{
+			PDBG_ONLY(shadow::on_level_unload());
 			occlusion_query::instance().on_level_unload();
 			atmosphere::instance().on_level_unload();
 		}

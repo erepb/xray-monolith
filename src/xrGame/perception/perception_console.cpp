@@ -4,6 +4,7 @@
 #ifdef PERCEPTION_DEBUG
 
 #include "occlusion_query.h"
+#include "shadow_harness.h"
 #include "atmosphere.h"
 #include "canopy_oracle.h"
 #include "../Level.h"
@@ -263,7 +264,7 @@ namespace perception
 				const bool was_recording = q.record;
 				q.record = true;
 				occlusion_result res;
-				if (!q.trace(seg, CDB::OPT_CULL, 0, res))
+				if (!q.trace(seg, CDB::OPT_CULL, 0, 0, res))
 				{
 					q.record = was_recording;
 					Msg("! [perception] trace failed");
@@ -282,34 +283,15 @@ namespace perception
 				rr.to = seg.to;
 				rr.transmittance = res.transmittance;
 				rr.dominant = res.dominant;
+				rr.freshness = 1.f;
 				sk.add_sticky(rr);
 
 				for (u32 i = 0; i < q.last_chords.size(); ++i)
-				{
-					chord_record cr;
-					cr.enter = q.last_chords[i].enter;
-					cr.exit = q.last_chords[i].exit;
-					cr.blocked = q.last_chords[i].blocked;
-					sk.add_sticky(cr);
-				}
-
+					sk.add_sticky(q.last_chords[i]);
 				for (u32 i = 0; i < q.last_canopy.size(); ++i)
-				{
-					chord_record cr;
-					cr.enter = q.last_canopy[i].enter;
-					cr.exit = q.last_canopy[i].exit;
-					cr.blocked = q.last_canopy[i].blocked;
-					sk.add_sticky(cr);
-				}
-
+					sk.add_sticky(q.last_canopy[i]);
 				for (u32 i = 0; i < q.last_hits.size(); ++i)
-				{
-					point_record pr;
-					pr.pos = q.last_hits[i].pos;
-					pr.cls = q.last_hits[i].cls;
-					pr.t = q.last_hits[i].t;
-					sk.add_sticky(pr);
-				}
+					sk.add_sticky(q.last_hits[i]);
 			}
 
 			virtual void Info(TInfo& I) { xr_strcpy(I, "trace from the camera crosshair, draw and print"); }
@@ -392,15 +374,52 @@ namespace perception
 			virtual void Info(TInfo& I) { xr_strcpy(I, "print cache hit rates | reset"); }
 		};
 
+		class CCC_PerceptionShadow : public IConsole_Command
+		{
+		public:
+			CCC_PerceptionShadow(LPCSTR N) : IConsole_Command(N) { bEmptyArgsHandled = TRUE; }
+
+			virtual void Execute(LPCSTR args)
+			{
+				if (args && xr_strlen(args))
+				{
+					if (0 == xr_strcmp(args, "report"))
+					{
+						shadow::report();
+						return;
+					}
+					if (0 == xr_strcmp(args, "reset"))
+					{
+						shadow::reset();
+						Msg("~ [perception] shadow stats reset");
+						return;
+					}
+					if (0 == xr_strcmp(args, "off")) shadow::g_mode = shadow::mode_off;
+					else if (0 == xr_strcmp(args, "actor")) shadow::g_mode = shadow::mode_actor;
+					else if (0 == xr_strcmp(args, "all")) shadow::g_mode = shadow::mode_all;
+					else
+					{
+						Msg("! [perception] perception_shadow off|actor|all|report|reset");
+						return;
+					}
+				}
+				Msg("~ [perception] shadow %s", shadow::mode_name(shadow::g_mode));
+			}
+
+			virtual void Info(TInfo& I) { xr_strcpy(I, "off | actor | all | report | reset"); }
+		};
+
 		void register_console_commands()
 		{
 			CMD1(CCC_PerceptionProbe, "perception_probe");
 			CMD1(CCC_PerceptionExplain, "perception_explain");
 			CMD1(CCC_PerceptionCacheStats, "perception_cache");
+			CMD1(CCC_PerceptionShadow, "perception_shadow");
 
-			// Only the trims are live. max_slab_h and the resolve limits are copied into the grass oracle
-			// at level load, so a console-bound value would never reach it.
+			// Only the trims and ray_extend are live. max_slab_h and the resolve limits are copied into
+			// the grass oracle at level load, so a console-bound value would never reach it.
 			occlusion_model& mdl = occlusion_query::instance().tunables();
+			CMD4(CCC_Float, "perception_ray_extend", &mdl.ray_extend, 0.f, 5.f);
 			CMD4(CCC_Float, "perception_foliage_k", &mdl.foliage_k, 0.f, 100.f);
 			CMD4(CCC_Float, "perception_canopy_k", &mdl.canopy_k, 0.f, 100.f);
 			CMD4(CCC_Float, "perception_atmosphere_k", &mdl.atmosphere_k, 0.f, 100.f);

@@ -15,6 +15,13 @@ namespace perception
 	// v1 and v2 cannot drift - which matters because Stage 3 compares them directly.
 	float material_transmittance(CObject* O, u32 element);
 
+	// Game material index of the surface a hit landed on.
+	u16 material_of(const collide::rq_result& h);
+
+	// The test callback every vision ray is cast with (objects flagged STYPE_FEELVISIONIGNORE are not
+	// tested); null when the engine has no such flag.
+	collide::test_callback* vision_test_callback();
+
 	// The shared occlusion primitive. Not a percept: the firing path will call the same service with
 	// its own origin, rate and threshold, so neither system inherits the other's cadence.
 	class occlusion_query
@@ -26,14 +33,10 @@ namespace perception
 		void on_level_unload();
 		bool ready() const { return m_ready; }
 
-		bool trace(const segment& seg, u32 rq_flags, CObject* ignore, occlusion_result& out) const;
-
-		// Prefix/tail form. `head` is traced once and reused across every tail sharing it; this, not
-		// the cross-frame cache, is the primary efficiency mechanism (STAGE2-DESIGN 7.3).
-		bool trace_head(const segment& head, u32 rq_flags, CObject* ignore,
-		                occlusion_result& out) const;
-		bool trace_tail(const occlusion_result& head_result, const segment& tail, u32 rq_flags,
-		                CObject* ignore, occlusion_result& out) const;
+		// `ignore` is never hit (the observer). Hits on `target` are skipped and reported in
+		// self_hits/self_range; either may be null.
+		bool trace(const segment& seg, u32 rq_flags, CObject* ignore, const CObject* target,
+		           occlusion_result& out) const;
 
 		const occlusion_model& model() const { return m_model; }
 
@@ -63,9 +66,6 @@ namespace perception
 #endif
 
 	private:
-		bool trace_impl(const segment& seg, u32 rq_flags, CObject* ignore,
-		                occlusion_result& out) const;
-
 		mutable collide::rq_results m_hits;
 		mutable static_occlusion_cache m_cache;
 		occluder_table m_table;
