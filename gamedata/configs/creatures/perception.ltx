@@ -1,0 +1,50 @@
+; Vision 2.0 - occlusion primitive tunables (Stage 2).
+; Read once per level load by perception::occlusion_model. Every key is listed at its default
+; so the shipped values are discoverable here rather than only in the C++ initialisers.
+
+[occlusion_model]
+
+; Metres the ray is extended past the target before hit testing.
+; 0.20 reproduces v1, which bakes the same overshoot into its range (Feel_Vision.cpp:212).
+ray_extend                     = 0.20
+
+; Trim on the measured grass optical depth:
+;   transmittance = exp(-foliage_k * tau)
+; tau is summed over the detail instances the ray actually passed through - real placement from the
+; renderer, real quad area and real atlas alpha - so 1.00 means "take the measurement at its word".
+; Raise it if NPCs still see through grass the player cannot, lower it if grass conceals more than it
+; looks like it should. It is not a stand-in for the physics; there is no fitted constant behind it.
+; Tunable live from the console as perception_foliage_k.
+foliage_k                      = 1.00
+
+; Trim on the measured tree-canopy optical depth, the same way foliage_k works for grass:
+;   transmittance = exp(-canopy_k * tau)
+; tau is accumulated over the 2 m cells the ray crossed, each holding the extinction-weighted leaf
+; area baked from that level's real leaf triangles and their real atlas alpha - so 1.00 again means
+; "take the measurement at its word". Conifer cards come out roughly 2.5 to 3x denser than oak or
+; poplar ones (extinction 0.521 for spruce and pine, atlas alpha 0.406, against 0.17-0.21 for alpha
+; 0.156-0.186) and bare-branch winter trees nearly transparent, with nothing tuned per species.
+; Tunable live from the console as perception_canopy_k.
+canopy_k                       = 1.00
+
+; Trim on the fog curve measured from the live fog shader:
+;   transmittance = measured ^ atmosphere_k
+; 1.00 means NPCs lose sight in fog exactly as the player's screen does. Raise it for fog that hides
+; more than it looks like it should, lower it for less. 0 switches the fog channel off.
+; Tunable live from the console as perception_atmosphere_k.
+atmosphere_k                   = 1.00
+
+; Metres. Clamps the height band used for the cheap "is this ray anywhere near grass" reject before
+; a slot is resolved. Slot bounds run to 11-22 m where a slot straddles a cliff, so this trims the
+; outliers. It never scales an instance - only the pre-reject. 0 disables the clamp.
+max_slab_h                     = 4.00
+
+; Grass slots worked out per frame, for all NPCs together. A slot not reached in time counts as
+; fully blocking for that frame, so too low a value makes NPCs briefly blind through fresh grass -
+; perception_cache shows it as budget denials and a degraded share above zero. Each slot costs
+; roughly 7-18 us, so 64 is about 0.5-1 ms in the worst frame. Range 1-4096.
+resolve_budget                 = 64
+
+; Grass slots kept once worked out (~320 bytes each, 8192 is about 2.6 MB). Too small and the same
+; slots are worked out again every few seconds, which spends the budget above. Range 1024-262144.
+resolve_cache_slots            = 8192

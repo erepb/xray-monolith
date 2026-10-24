@@ -48,6 +48,12 @@
 #define STATIONARYMGUN_NEW								// Upgrade CSE_ALifeStationaryMgun and CWeaponStatMgun.
 #define PROJECTOR_NEW									// Upgrade CProjector.
 #define SPATIAL_CHANGE									// Upgrade spatial and feel_vision.
+
+// PERCEPTION (vision 2.0):
+#define PERCEPTION_V2									// foliage oracle + graded occlusion data layer
+#define PERCEPTION_DEBUG								// perception logging/profiling. Independent of DEBUG on purpose:
+														// tuning happens in release builds. Comment out to strip entirely.
+//-PERCEPTION
 #define EXPLOSIVE_CHANGE								// Upgrade CExplosive and its relatives.
 #define CBULLETMANAGER_EX                               // Upgrade CBulletManager.
 

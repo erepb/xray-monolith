@@ -15,6 +15,7 @@
 #include "level_graph.h"
 #include "stalker_movement_manager_smart_cover.h"
 #include "../xrEngine/gamemtllib.h"
+#include "perception/occlusion_query.h"
 #include "agent_manager.h"
 #include "agent_member_manager.h"
 #include "ai_space.h"
@@ -610,22 +611,9 @@ bool CVisualMemoryManager::visible(u32 _level_vertex_id, float yaw, float eye_fo
 
 float CVisualMemoryManager::feel_vision_mtl_transp(CObject* O, u32 element)
 {
-	float vis = 1.f;
-	if (O)
-	{
-		IKinematics* V = smart_cast<IKinematics*>(O->Visual());
-		if (0 != V)
-		{
-			CBoneData& B = V->LL_GetData((u16)element);
-			vis = GMLib.GetMaterialByIdx(B.game_mtl_idx)->fVisTransparencyFactor;
-		}
-	}
-	else
-	{
-		CDB::TRI* T = Level().ObjectSpace.GetStaticTris() + element;
-		vis = GMLib.GetMaterialByIdx(T->material)->fVisTransparencyFactor;
-	}
-	return vis;
+	// Single implementation, shared with the v2 occlusion path: v1 and v2 are compared directly in
+	// perception staging, so a divergence here would corrupt the comparison.
+	return perception::material_transmittance(O, element);
 }
 
 struct CVisibleObjectPredicateEx

@@ -1,0 +1,16 @@
+; Vision 2.0 - materials whose vegetation the canopy field already measures.
+;
+; occluder_class = hard | soft | creature | canopy
+;
+; canopy: hits on this material are ignored while the level has a complete canopy field, which
+; already counts the same bush from its rendered leaf geometry. Without a complete field the hits
+; count as soft, at the material's own transparency.
+;
+; Set it on the collision-proxy material of any vegetation that also has rendered leaf cards, and use
+; @[section] so the entry overrides the material rather than redefining it.
+
+@[materials\bush]
+occluder_class                 = canopy
+
+@[materials\bush_sux]
+occluder_class                 = canopy

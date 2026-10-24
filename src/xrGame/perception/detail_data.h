@@ -1,0 +1,86 @@
+#pragma once
+
+#include "dds_alpha.h"
+
+namespace perception
+{
+	// One triangle's atlas footprint. Kept per-face because a detail model's overall UV bbox is
+	// useless on a shared atlas: a model whose quads sit in opposite corners bounds most of the
+	// image, so a mean taken over it reads whatever else is packed nearby.
+	struct uv_face
+	{
+		uv_rect uv;
+		float area; // model-space triangle area, used to weight the per-face mean
+	};
+
+	struct detail_model_desc
+	{
+		shared_str shader;
+		shared_str texture;
+		Fbox bbox;
+		uv_rect uv; // union of all faces; coarse fallback when per-face weighting yields nothing
+		u32 verts;
+		u32 tris;
+		float area; // summed triangle area in model space
+		xr_vector<uv_face> faces;
+	};
+
+	struct detail_slot_desc
+	{
+		u16 id[4];
+		u16 y_base;       // 20 cm units, world base = y_base*0.2 - 200
+		u8 y_height;      // 10 cm units
+	};
+
+	static const u16 DETAIL_ID_EMPTY = 0xFFFF;
+
+	// A chunk header's declared size is unvalidated in release (find_chunk's size check is DEBUG-only),
+	// so a child reader's Size can exceed the bytes actually behind it - which would silently inflate
+	// every remaining() guard downstream. find_chunk leaves the parent positioned at the child's data
+	// start, so the parent's remaining count is the real bound. Resolves the chunk exactly once and
+	// builds the child itself: IReader::open_chunk would re-resolve the id and can land on a different
+	// chunk with the same id. Compressed chunks are refused.
+	IReader* open_chunk_checked(IReader* parent, u32 id);
+
+	// IReader::r_stringZ(char*,u32) measures its length guard against the string at chunk offset 0,
+	// not at Pos, so it is an unbounded write for any Pos != 0. Bound it ourselves.
+	bool read_stringz(IReader* r, char* dest, u32 cap);
+
+	// Read-only view over level.details. Deliberately parses the file itself instead of reaching
+	// into CDetailManager: the renderer does not retain per-model texture names (CDetail::Load
+	// passes them straight to shader.create), and this keeps the perception module free of any
+	// render-side dependency.
+	class detail_data
+	{
+	public:
+		detail_data();
+		~detail_data();
+
+		bool load();
+		void unload();
+
+		u32 version() const { return m_version; }
+		u32 size_x() const { return m_size_x; }
+		u32 size_z() const { return m_size_z; }
+		int offs_x() const { return m_offs_x; }
+		int offs_z() const { return m_offs_z; }
+		u32 slot_count() const { return m_size_x * m_size_z; }
+
+		const xr_vector<detail_model_desc>& models() const { return m_models; }
+
+		void slot(u32 index, detail_slot_desc& out) const;
+
+	private:
+		bool read_models(IReader* fs);
+
+		IReader* m_fs;
+		IReader* m_slots_chunk; // held open: open_chunk may decompress into its own buffer
+		const u8* m_slots;
+		u32 m_slot_bytes;
+		u32 m_version;
+		u32 m_object_count;
+		u32 m_size_x, m_size_z;
+		int m_offs_x, m_offs_z;
+		xr_vector<detail_model_desc> m_models;
+	};
+}

@@ -2,6 +2,7 @@
 #include "../xrEngine/xr_ioconsole.h"
 #include "../xrEngine/xr_ioc_cmd.h"
 #include "../xrEngine/customhud.h"
+#include "perception/perception_debug.h"
 #include "../xrEngine/fdemorecord.h"
 #include "../xrEngine/fdemoplay.h"
 #include "xrMessages.h"
@@ -2516,6 +2517,8 @@ void CCC_RegisterCommands()
 #ifdef DEBUG
 	CMD1(CCC_MemCheckpoint, "stat_memory_checkpoint");
 #endif //#ifdef DEBUG
+
+	perception::debug::register_console_commands();
 	// game
 
 	psActorFlags.set(AF_CROUCH_TOGGLE, FALSE);

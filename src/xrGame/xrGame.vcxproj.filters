@@ -4,6 +4,9 @@
     <Filter Include="AI">
       <UniqueIdentifier>{f34c5d00-338a-43c5-a944-caabce922e2b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Perception">
+      <UniqueIdentifier>{6b1f0a41-7d2c-4d6e-9a55-1c0b7e3a9f10}</UniqueIdentifier>
+    </Filter>
     <Filter Include="AI\AComponents">
       <UniqueIdentifier>{4ad6209e-add1-4deb-8a8d-c0d31f2130f4}</UniqueIdentifier>
     </Filter>
@@ -7471,6 +7474,93 @@
     </ClCompile>
     <ClCompile Include="visual_memory_manager.cpp">
       <Filter>AI\AComponents\MemoryManager\raw_data_managers\VisualMemoryManager</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\dds_alpha.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\detail_data.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\foliage_oracle.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\canopy_data.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\canopy_oracle.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\slot_walk.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\foliage_profile.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\perception_debug.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClInclude Include="perception\dds_alpha.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\detail_data.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\foliage_oracle.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\canopy_data.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\canopy_oracle.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\slot_walk.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\foliage_profile.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\perception_debug.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClCompile Include="perception\occlusion_types.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\occluder_table.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\occlusion_model.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\occlusion_query.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\static_occlusion_cache.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClCompile Include="perception\perception_console.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
+    <ClInclude Include="perception\occlusion_types.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\occluder_table.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\occlusion_model.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\occlusion_query.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\static_occlusion_cache.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\atmosphere.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClCompile Include="perception\atmosphere.cpp">
+      <Filter>Perception</Filter>
     </ClCompile>
     <ClCompile Include="visual_memory_params.cpp">
       <Filter>AI\AComponents\MemoryManager\raw_data_managers\VisualMemoryManager\visual_memory_params</Filter>

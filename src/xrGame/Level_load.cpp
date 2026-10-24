@@ -18,6 +18,9 @@
 #include "character_reputation.h"
 #include "monster_community.h"
 #include "HudManager.h"
+#include "perception/foliage_oracle.h"
+#include "perception/canopy_oracle.h"
+#include "perception/occlusion_query.h"
 
 extern ENGINE_API bool g_dedicated_server;
 
@@ -49,6 +52,12 @@ bool CLevel::Load_GameSpecific_Before()
 
 bool CLevel::Load_GameSpecific_After()
 {
+#ifdef PERCEPTION_V2
+	perception::foliage_oracle::instance().on_level_load();
+	perception::canopy_oracle::instance().on_level_load();
+	perception::occlusion::on_level_load();
+#endif
+
 	R_ASSERT(m_StaticParticles.empty());
 	// loading static particles
 	string_path fn_game;
