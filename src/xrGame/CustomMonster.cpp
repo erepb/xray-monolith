@@ -52,6 +52,8 @@
 #include "../xrCore/_vector3d_ext.h"
 #include "debug_text_tree.h"
 #include "../xrPhysics/IPHWorld.h"
+#include "perception/perception_debug.h"
+#include "perception/shadow_harness.h"
 
 #ifdef DEBUG
 #	include "debug_renderer.h"
@@ -697,6 +699,7 @@ void CCustomMonster::eye_pp_s2()
 	u32 dwTime = Level().timeServer();
 	u32 dwDT = dwTime - eye_pp_timestamp;
 	eye_pp_timestamp = dwTime;
+	PDBG_ONLY(perception::shadow::tick shadow_tick(*this, float(dwDT) / 1000.f));
 	feel_vision_update(this, eye_matrix.c, float(dwDT) / 1000.f, memory().visual().transparency_threshold());
 	Device.Statistic->AI_Vis_RayTests.End();
 }

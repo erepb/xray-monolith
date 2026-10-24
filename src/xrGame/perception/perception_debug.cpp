@@ -3,11 +3,8 @@
 
 #ifdef PERCEPTION_DEBUG
 
-#include "occlusion_query.h"
+#include "shadow_harness.h"
 #include "../Level.h"
-#include "../Actor.h"
-#include "../CustomMonster.h"
-#include "../visual_memory_manager.h"
 #include "../debug_renderer.h"
 
 namespace perception
@@ -81,6 +78,13 @@ namespace perception
 			return D3DCOLOR_XRGB(v, v, 0);
 		}
 
+		static IC u32 dimmed(u32 c, float k)
+		{
+			clamp(k, 0.f, 1.f);
+			return D3DCOLOR_XRGB(int(float(color_get_R(c)) * k), int(float(color_get_G(c)) * k),
+			                     int(float(color_get_B(c)) * k));
+		}
+
 		static IC u32 class_colour(occluder_class c)
 		{
 			switch (c)
@@ -102,6 +106,7 @@ namespace perception
 			rays.clear();
 			chords.clear();
 			points.clear();
+			v1_points.clear();
 		}
 
 		void sink::buffer::swap(buffer& o)
@@ -109,6 +114,7 @@ namespace perception
 			rays.swap(o.rays);
 			chords.swap(o.chords);
 			points.swap(o.points);
+			v1_points.swap(o.v1_points);
 		}
 
 		sink& sink::instance()
@@ -126,6 +132,7 @@ namespace perception
 		void sink::add(const ray_record& r) { m_build.rays.push_back(r); }
 		void sink::add(const chord_record& c) { m_build.chords.push_back(c); }
 		void sink::add(const point_record& p) { m_build.points.push_back(p); }
+		void sink::add(const v1_point_record& p) { m_build.v1_points.push_back(p); }
 
 		void sink::begin_sticky() { m_sticky.clear(); }
 		void sink::add_sticky(const ray_record& r) { m_sticky.rays.push_back(r); }
@@ -167,7 +174,7 @@ namespace perception
 				const ray_record& x = b.rays[i];
 				r.draw_line(Fidentity, x.from, x.to, ray_colour(x.transmittance), false);
 				r.draw_aabb(x.from, s, s, s, D3DCOLOR_XRGB(60, 120, 255), false);
-				r.draw_aabb(x.to, s, s, s, class_colour(x.dominant), false);
+				r.draw_aabb(x.to, s, s, s, dimmed(class_colour(x.dominant), 0.25f + 0.75f * x.freshness), false);
 			}
 
 			// Drawn after the rays so the chord overlays the segment it belongs to.
@@ -182,6 +189,13 @@ namespace perception
 				const point_record& x = b.points[i];
 				r.draw_aabb(x.pos, s * .6f, s * .6f, s * .6f, class_colour(x.cls), false);
 			}
+
+			for (u32 i = 0; i < b.v1_points.size(); ++i)
+			{
+				const v1_point_record& x = b.v1_points[i];
+				r.draw_aabb(x.pos, s * 1.6f, s * 1.6f, s * 1.6f,
+				            x.visible ? D3DCOLOR_XRGB(255, 255, 255) : D3DCOLOR_XRGB(70, 70, 70), false);
+			}
 		}
 
 		void flush()
@@ -190,92 +204,6 @@ namespace perception
 		}
 
 		// ---- live view -------------------------------------------------------------------------
-
-		static u32 s_next_log = 0;
-
-		static void collect(CCustomMonster* m, const CObject* target, bool sticky)
-		{
-			occlusion_query& q = occlusion_query::instance();
-			if (!q.ready() || !m || !target)
-				return;
-
-			Fvector to;
-			bool found = false;
-			for (u32 i = 0; i < m->feel_visible.size(); ++i)
-			{
-				if (m->feel_visible[i].O == target)
-				{
-					to = m->feel_visible[i].cp_LAST;
-					found = true;
-					break;
-				}
-			}
-			if (!found)
-				return;
-
-			segment seg;
-			if (!segment::make(m->eye_matrix.c, to, seg))
-				return;
-
-			q.record = (g_draw != 0);
-
-			occlusion_result res;
-			if (!q.trace(seg, CDB::OPT_CULL, m, res))
-				return;
-
-			// v1's own threshold, so the split matches the condition that actually rerolls cp_LP.
-			float thr = 0.5f;
-			CVisualMemoryManager* vm = m->visual_memory();
-			if (vm)
-				thr = vm->transparency_threshold();
-			g_cache_split.note(res.transmittance < thr, res);
-
-			sink& sk = sink::instance();
-
-			ray_record rr;
-			rr.from = seg.from;
-			rr.to = seg.to;
-			rr.transmittance = res.transmittance;
-			rr.dominant = res.dominant;
-			if (sticky) sk.add_sticky(rr); else sk.add(rr);
-
-			for (u32 i = 0; i < q.last_chords.size(); ++i)
-			{
-				chord_record cr;
-				cr.enter = q.last_chords[i].enter;
-				cr.exit = q.last_chords[i].exit;
-				cr.blocked = q.last_chords[i].blocked;
-				if (sticky) sk.add_sticky(cr); else sk.add(cr);
-			}
-
-			for (u32 i = 0; i < q.last_canopy.size(); ++i)
-			{
-				chord_record cr;
-				cr.enter = q.last_canopy[i].enter;
-				cr.exit = q.last_canopy[i].exit;
-				cr.blocked = q.last_canopy[i].blocked;
-				if (sticky) sk.add_sticky(cr); else sk.add(cr);
-			}
-
-			for (u32 i = 0; i < q.last_hits.size(); ++i)
-			{
-				point_record pr;
-				pr.pos = q.last_hits[i].pos;
-				pr.cls = q.last_hits[i].cls;
-				pr.t = q.last_hits[i].t;
-				if (sticky) sk.add_sticky(pr); else sk.add(pr);
-			}
-
-			if (g_log && Device.dwTimeGlobal >= s_next_log)
-			{
-				string256 deg;
-				Msg("~ [perception] %-24s T=%.3f  dom %-8s %-24s  tau %.2f  canopy tau %.2f  v1 T=%.3f  hits %u  degraded %s",
-				    m->cName().c_str(), res.transmittance, occluder_class_name(res.dominant),
-				    res.dominant_material.size() ? res.dominant_material.c_str() : "-",
-				    res.foliage_tau, res.canopy_tau, res.v1_transmittance(), res.hit_count,
-				    describe_degraded(res.degraded, deg));
-			}
-		}
 
 		void on_frame()
 		{
@@ -287,32 +215,8 @@ namespace perception
 
 			sink::instance().begin_frame();
 
-			if (!g_explain || !g_pGameLevel)
-				return;
-
-			CObject* target = Actor();
-			if (!target)
-				return;
-
-			const bool log_now = g_log && Device.dwTimeGlobal >= s_next_log;
-
-			for (u32 i = 0; i < Level().Objects.o_count(); ++i)
-			{
-				CObject* o = Level().Objects.o_get_by_iterator(i);
-				if (o == target)
-					continue;
-
-				CCustomMonster* m = smart_cast<CCustomMonster*>(o);
-				if (!m)
-					continue;
-				if (g_explain_id != 0xffff && m->ID() != g_explain_id)
-					continue;
-
-				collect(m, target, false);
-			}
-
-			if (log_now)
-				s_next_log = Device.dwTimeGlobal + u32(_max(g_log_interval, 50));
+			if (g_explain && g_pGameLevel)
+				shadow::draw_explained();
 		}
 	}
 }
