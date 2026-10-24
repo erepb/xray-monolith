@@ -171,6 +171,7 @@ public:
 	CPSLibrary PSLibrary;
 
 	CDetailManager* Details;
+	u32 m_detail_generation; // bumped in reset_end() when Details is rebuilt, see IRender_interface
 	CModelPool* Models;
 	CWallmarksEngine* Wallmarks;
 
@@ -330,6 +331,10 @@ public:
 	// Information
 	virtual void Statistics(CGameFont* F);
 	virtual LPCSTR getShaderPath() { return "r3\\"; }
+
+	virtual bool resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out);
+	virtual u32 detail_generation() { return m_detail_generation; }
+
 	virtual ref_shader getShader(int id);
 	virtual IRender_Sector* getSector(int id);
 	virtual IRenderVisual* getVisual(int id);

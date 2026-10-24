@@ -79,24 +79,34 @@ static inline u32 hash2(u32 x, u32 y)
 }
 
 //#define		DBG_SWITCHOFF_RANDOMIZE
-void CDetailManager::cache_Decompress(Slot* S)
-{
-	VERIFY(S);
-	Slot& D = *S;
-	D.type = stReady;
-	if (D.empty) return;
 
-	DetailSlot& DS = QueryDB(D.sx, D.sz);
+// The single placement routine. Everything that decides WHERE a detail object stands lives here and
+// nowhere else - the render cache and the AI-side resolver are both callers, so neither can drift
+// from what the player is actually looking at.
+void CDetailManager::place_slot(int sx, int sz, IPlacer& out)
+{
+	DetailSlot& DS = QueryDB(sx, sz);
+	if ((DS.id0 == DetailSlot::ID_Empty) && (DS.id1 == DetailSlot::ID_Empty) &&
+		(DS.id2 == DetailSlot::ID_Empty) && (DS.id3 == DetailSlot::ID_Empty))
+		return;
+
+	// Same box cache_CD builds (DetailManager_CACHE.cpp:59-61), rebuilt from the grid coordinate so
+	// this works for any slot in the level and not only the ones the camera cache happens to hold.
+	Fbox slot_box;
+	slot_box.min.set(sx * dm_slot_size, DS.r_ybase(), sz * dm_slot_size);
+	slot_box.max.set(slot_box.min.x + dm_slot_size, DS.r_ybase() + DS.r_yheight(),
+	                 slot_box.min.z + dm_slot_size);
+	slot_box.grow(EPS_L);
 
 	// Select polygons
 	Fvector bC, bD;
-	D.vis.box.get_CD(bC, bD);
+	slot_box.get_CD(bC, bD);
 
 #ifdef _EDITOR
 	ETOOLS::box_options	(CDB::OPT_FULL_TEST);
 	// Select polygons
 	SBoxPickInfoVec		pinf;
-    Scene->BoxPickObjects(D.vis.box,pinf,GetSnapList());
+    Scene->BoxPickObjects(slot_box,pinf,GetSnapList());
 	u32	triCount		= pinf.size();
 #else
 	xrc.box_options(CDB::OPT_FULL_TEST);
@@ -124,15 +134,11 @@ void CDetailManager::cache_Decompress(Slot* S)
 	u32 d_size = iCeil(dm_slot_size / density);
 	svector<int, dm_obj_in_slot> selected;
 
-	u32 p_rnd = hash2((u32)D.sx, (u32)D.sz);
+	u32 p_rnd = hash2((u32)sx, (u32)sz);
 	CRandom r_selection(0x12071980 ^ p_rnd);
 	CRandom r_jitter(0x12071980 ^ p_rnd);
 	CRandom r_yaw(0x12071980 ^ p_rnd);
 	CRandom r_scale(0x12071980 ^ p_rnd);
-
-	// Prepare to actual-bounds-calculations
-	Fbox Bounds;
-	Bounds.invalidate();
 
 	// Decompressing itself
 	for (u32 z = 0; z <= d_size; z++)
@@ -181,22 +187,22 @@ void CDetailManager::cache_Decompress(Slot* S)
 #endif
 
 			CDetail* Dobj = objects[DS.r_id(index)];
-			SlotItem* ItemP = poolSI.create();
-			SlotItem& Item = *ItemP;
+			float i_scale;
+			Fmatrix i_rot;
 
 			// Position (XZ)
-			float rx = (float(x) / float(d_size)) * dm_slot_size + D.vis.box.min.x;
-			float rz = (float(z) / float(d_size)) * dm_slot_size + D.vis.box.min.z;
+			float rx = (float(x) / float(d_size)) * dm_slot_size + slot_box.min.x;
+			float rz = (float(z) / float(d_size)) * dm_slot_size + slot_box.min.z;
 			Fvector Item_P;
 
 #ifndef		DBG_SWITCHOFF_RANDOMIZE
-			Item_P.set(rx + r_jitter.randFs(jitter), D.vis.box.max.y, rz + r_jitter.randFs(jitter));
+			Item_P.set(rx + r_jitter.randFs(jitter), slot_box.max.y, rz + r_jitter.randFs(jitter));
 #else
 			Item_P.set	(rx , D.vis.box.max.y, rz );
 #endif
 
 			// Position (Y)
-			float y = D.vis.box.min.y - 5;
+			float y = slot_box.min.y - 5;
 			Fvector dir;
 			dir.set(0, -1, 0);
 			Fvector3 terrain_normal;
@@ -243,82 +249,94 @@ RDEVICE.Statistic->TEST0.End		();
 			float DotP = terrain_normal.dotproduct(dir);
 			if (DotP > -(1.0f - r_scale.randF(ps_ssfx_terrain_grass_slope * 0.8f, ps_ssfx_terrain_grass_slope))) continue;
 
-			if (y < D.vis.box.min.y) continue;
+			if (y < slot_box.min.y) continue;
 			Item_P.y = y;
-			Item.normal = terrain_normal; // Save terrain normal here to feed the grass shader later.
+
 
 			// Angles and scale
 #ifndef		DBG_SWITCHOFF_RANDOMIZE
-			Item.scale = r_scale.randF(Dobj->m_fMinScale * 0.5f, Dobj->m_fMaxScale * 0.9f);
+			i_scale = r_scale.randF(Dobj->m_fMinScale * 0.5f, Dobj->m_fMaxScale * 0.9f);
 #else
-			Item.scale	= (Dobj->m_fMinScale*0.5f+Dobj->m_fMaxScale*0.9f)/2;
-			//Item.scale	= 0.1f;
+			i_scale	= (Dobj->m_fMinScale*0.5f+Dobj->m_fMaxScale*0.9f)/2;
 #endif
-			Item.scale *= ps_current_detail_height;
-			// X-Form BBox
-			Fmatrix mScale, mXform;
-			Fbox ItemBB;
-
+			i_scale *= ps_current_detail_height;
 #ifndef		DBG_SWITCHOFF_RANDOMIZE
-			Item.mRotY.rotateY(r_yaw.randF(0, PI_MUL_2));
+			i_rot.rotateY(r_yaw.randF(0, PI_MUL_2));
 #else
-			Item.mRotY.rotateY				(0);
+			i_rot.rotateY				(0);
 #endif
 
 			// Terrain Alignment
 			if (ps_ssfx_terrain_grass_align > 0)
 			{
 				// Current matrix
-				Fmatrix CurrMatrix = Item.mRotY;
+				Fmatrix CurrMatrix = i_rot;
 
 				// Align to terrain
-				Item.mRotY.j.set(terrain_normal);
-				Fvector::generate_orthonormal_basis(Item.mRotY.j, Item.mRotY.i, Item.mRotY.k);
+				i_rot.j.set(terrain_normal);
+				Fvector::generate_orthonormal_basis(i_rot.j, i_rot.i, i_rot.k);
 
 				// Apply random rotation from old matrix
-				Item.mRotY.mulB_43(CurrMatrix);
+				i_rot.mulB_43(CurrMatrix);
 			}
 
-			Item.mRotY.translate_over(Item_P);
-			mScale.scale(Item.scale, Item.scale, Item.scale);
+			i_rot.translate_over(Item_P);
+
+			out.place(index, DS.r_id(index), Item_P, i_scale, i_rot, terrain_normal);
+		}
+	}
+}
+
+namespace
+{
+	// The render cache's half of placement: everything downstream of "an instance stands here" -
+	// pooling, lighting, wave sorting and the tightened bounds.
+	class render_placer : public CDetailManager::IPlacer
+	{
+	public:
+		CDetailManager* dm;
+		CDetailManager::Slot* slot;
+		DetailSlot* ds;
+		Fbox bounds;
+
+		render_placer() : dm(0), slot(0), ds(0) { bounds.invalidate(); }
+
+		virtual void place(u32 slot_slot, u32 model_id, const Fvector& pos, float scale,
+		                   const Fmatrix& rot, const Fvector& terrain_normal)
+		{
+			CDetail* Dobj = dm->objects[model_id];
+			CDetailManager::SlotItem* ItemP = dm->poolSI.create();
+			CDetailManager::SlotItem& Item = *ItemP;
+
+			Item.scale = scale;
+			Item.mRotY = rot;
+			Item.normal = terrain_normal; // fed to the grass shader later
+
+			Fmatrix mScale, mXform;
+			Fbox ItemBB;
+			mScale.scale(scale, scale, scale);
 			mXform.mul_43(Item.mRotY, mScale);
 			ItemBB.xform(Dobj->bv_bb, mXform);
-			Bounds.merge(ItemBB);
+			bounds.merge(ItemBB);
 
 #ifndef _EDITOR
 #ifdef		DEBUG
-			if(det_render_debug)
-				draw_obb(  mXform, color_rgba		(255,0,0,255) );//Fmatrix().mul_43( mXform, Fmatrix().scale(5,5,5) )
+			if (det_render_debug)
+				draw_obb(mXform, color_rgba(255, 0, 0, 255));
 #endif
 #endif
 
-			// Color
-			/*
-			DetailPalette*	c_pal			= (DetailPalette*)&DS.color;
-			float gray255	[4];
-			gray255[0]						=	255.f*float(c_pal->a0)/15.f;
-			gray255[1]						=	255.f*float(c_pal->a1)/15.f;
-			gray255[2]						=	255.f*float(c_pal->a2)/15.f;
-			gray255[3]						=	255.f*float(c_pal->a3)/15.f;
-			*/
-			//float c_f						=	1.f;	//Interpolate		(gray255,x,z,d_size)+.5f;
-			//int c_dw						=	255;	//iFloor			(c_f);
-			//clamp							(c_dw,0,255);
-			//Item.C_dw						=	color_rgba		(c_dw,c_dw,c_dw,255);
 #if RENDER==R_R1
-			Item.c_rgb.x = DS.r_qclr(DS.c_r, 15);
-			Item.c_rgb.y = DS.r_qclr(DS.c_g, 15);
-			Item.c_rgb.z = DS.r_qclr(DS.c_b, 15);
+			Item.c_rgb.x = ds->r_qclr(ds->c_r, 15);
+			Item.c_rgb.y = ds->r_qclr(ds->c_g, 15);
+			Item.c_rgb.z = ds->r_qclr(ds->c_b, 15);
 #endif
-			Item.c_hemi = DS.r_qclr(DS.c_hemi, 15);
-			Item.c_sun = DS.r_qclr(DS.c_dir, 15);
-
-			//? hack: RGB = hemi
-			//? Item.c_rgb.add					(ps_r__Detail_rainbow_hemi*Item.c_hemi);
+			Item.c_hemi = ds->r_qclr(ds->c_hemi, 15);
+			Item.c_sun = ds->r_qclr(ds->c_dir, 15);
 
 			// Vis-sorting
 #ifndef		DBG_SWITCHOFF_RANDOMIZE
-			if (!UseVS())
+			if (!dm->UseVS())
 			{
 				// Always still on CPU pipe
 				Item.vis_ID = 0;
@@ -335,13 +353,55 @@ RDEVICE.Statistic->TEST0.End		();
 #else
 			Item.vis_ID = 0;
 #endif
-			// Save it
-			D.G[index].items.push_back(ItemP);
+			slot->G[slot_slot].items.push_back(ItemP);
 		}
-	}
+	};
+}
+
+void CDetailManager::cache_Decompress(Slot* S)
+{
+	VERIFY(S);
+	Slot& D = *S;
+	D.type = stReady;
+	if (D.empty) return;
+
+	render_placer rp;
+	rp.dm = this;
+	rp.slot = &D;
+	rp.ds = &QueryDB(D.sx, D.sz);
+
+	place_slot(D.sx, D.sz, rp);
 
 	// Update bounds to more tight and real ones
 	D.vis.clear();
-	D.vis.box.set(Bounds);
+	D.vis.box.set(rp.bounds);
 	D.vis.box.getsphere(D.vis.sphere.P, D.vis.sphere.R);
+}
+
+namespace
+{
+	// Drops yaw and the terrain normal: the AI-side proxy is a vertical cylinder, so neither can
+	// change the answer and carrying them would only invite a dependency on them.
+	class collect_placer : public CDetailManager::IPlacer
+	{
+	public:
+		xr_vector<detail_instance>* out;
+
+		virtual void place(u32 slot_slot, u32 model_id, const Fvector& pos, float scale,
+		                   const Fmatrix& rot, const Fvector& terrain_normal)
+		{
+			detail_instance i;
+			i.pos = pos;
+			i.scale = scale;
+			i.model = u16(model_id);
+			out->push_back(i);
+		}
+	};
+}
+
+void CDetailManager::collect_slot(int sx, int sz, xr_vector<detail_instance>& out)
+{
+	collect_placer cp;
+	cp.out = &out;
+	place_slot(sx, sz, cp);
 }

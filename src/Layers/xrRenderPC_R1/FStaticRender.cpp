@@ -157,6 +157,7 @@ void CRender::reset_end()
 	{
 		Details = new CDetailManager();
 		Details->Load();
+		++m_detail_generation; // placement changed - perception's cached instances are now stale
 	}
 
 	// Set this flag true to skip the first render frame,
@@ -177,6 +178,16 @@ void CRender::OnFrame()
 		// MT-HOM (@front)
 		Device.seqParallel.insert(Device.seqParallel.begin(), fastdelegate::FastDelegate0<>(&HOM, &CHOM::MT_RENDER));
 	}
+}
+
+bool CRender::resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out)
+{
+	out.clear();
+	if (!Details)
+		return false;
+
+	Details->collect_slot(sx, sz, out);
+	return true;
 }
 
 // Implementation
@@ -433,7 +444,7 @@ IC void gm_SetNearer(BOOL bNearer)
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 CRender::CRender()
-	: m_bFirstFrameAfterReset(false)
+	: m_detail_generation(0), m_bFirstFrameAfterReset(false)
 {
 }
 

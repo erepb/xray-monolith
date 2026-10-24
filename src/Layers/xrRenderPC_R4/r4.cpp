@@ -639,6 +639,7 @@ void CRender::reset_end()
 	{
 		Details = xr_new<CDetailManager>();
 		Details->Load();
+		++m_detail_generation; // placement changed - perception's cached instances are now stale
 	}
 	//-AVO
 
@@ -936,7 +937,7 @@ void CRender::rmNormal()
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 CRender::CRender()
-	: m_bFirstFrameAfterReset(false)
+	: m_detail_generation(0), m_bFirstFrameAfterReset(false)
 {
 	init_cacades();
 }
@@ -2198,4 +2199,14 @@ static inline bool match_shader_id(LPCSTR const debug_shader_id, LPCSTR const fu
 	return false;
 #endif // #ifdef DEBUG
 #endif// #if 1
+}
+
+bool CRender::resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out)
+{
+	out.clear();
+	if (!Details)
+		return false;
+
+	Details->collect_slot(sx, sz, out);
+	return true;
 }

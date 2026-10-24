@@ -9,6 +9,7 @@
 #include "../../xrCore/xrpool.h"
 #include "detailformat.h"
 #include "detailmodel.h"
+#include "../../Include/xrRender/DetailInstances.h"
 
 #ifdef _EDITOR
 //.	#include	"ESceneClassList.h"
@@ -254,6 +255,28 @@ public:
 	void cache_Task(int gx, int gz, Slot* D);
 	Slot* cache_Query(int sx, int sz);
 	void cache_Decompress(Slot* D);
+
+public:
+	// Receives every instance placement decides on. Two implementations: the render cache, and the
+	// AI-side resolver behind IRender_interface::resolve_detail_slot. One placement routine, so the
+	// two cannot drift - placement is not a formula that stays put, it already carries
+	// ps_current_detail_height, the ps_ssfx_terrain_grass_slope rejection and the terrain-align
+	// rotation, and a second copy would diverge the first time any of those changes.
+	class IPlacer
+	{
+	public:
+		virtual ~IPlacer() {}
+		virtual void place(u32 slot_slot, u32 model_id, const Fvector& pos, float scale,
+		                   const Fmatrix& rot, const Fvector& terrain_normal) = 0;
+	};
+
+	// Places one slot by grid coordinate, independent of the camera-centred cache. Safe for any slot
+	// in the level; silently emits nothing for slots outside the grid or holding no detail ids.
+	void place_slot(int sx, int sz, IPlacer& out);
+
+	// place_slot, flattened into the payload the AI consumes. Lives here so every renderer's
+	// resolve_detail_slot is a forwarding call and there is only one collector.
+	void collect_slot(int sx, int sz, xr_vector<detail_instance>& out);
 	BOOL cache_Validate();
 	// cache grid to world
 	int cg2w_X(int x) { return cache_cx - dm_size + x; }
