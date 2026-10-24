@@ -146,6 +146,9 @@ public:
 	CPSLibrary PSLibrary;
 
 	CDetailManager* Details;
+	u32 m_detail_generation; // bumped in reset_end() when Details is rebuilt, see IRender_interface
+	virtual bool resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out);
+	virtual u32 detail_generation() { return m_detail_generation; }
 	CModelPool* Models;
 	CWallmarksEngine* Wallmarks;
 

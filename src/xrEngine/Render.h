@@ -7,6 +7,7 @@
 
 #include "../Include/xrAPI/xrAPI.h"
 #include "../Include/xrRender/FactoryPtr.h"
+#include "../Include/xrRender/DetailInstances.h"
 class IUIShader;
 typedef FactoryPtr<IUIShader> wm_shader;
 //#include "../Include/xrRender/WallMarkArray.h"
@@ -268,6 +269,23 @@ public:
 	};
 
 	virtual LPCSTR getShaderPath() = 0;
+
+	// Detail objects the renderer places in one 2 m slot, by grid coordinate. Runs the engine's own
+	// placement rather than reading the camera-centred instance cache, so it answers for any slot in
+	// the level and inherits both user sliders and the slope/align rules for free.
+	//
+	// false means this renderer places no detail objects at all - which is NOT the same as "an empty
+	// slot", and the caller must not treat it as concealment: there is nothing on screen to hide
+	// behind either (FOLIAGE-DISCRETE-DESIGN 5).
+	virtual bool resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out)
+	{
+		out.clear();
+		return false;
+	}
+
+	// Bumped whenever placement changes, so consumers can drop cached instances.
+	virtual u32 detail_generation() { return 0; }
+
 	// virtual ref_shader getShader (int id) = 0;
 	virtual IRender_Sector* getSector(int id) = 0;
 	virtual IRenderVisual* getVisual(int id) = 0;
