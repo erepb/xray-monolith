@@ -8,6 +8,7 @@
 #include "../xrRender/SkeletonCustom.h"
 #include "../xrRender/LightTrack.h"
 #include "../xrRender/dxRenderDeviceRender.h"
+#include "../xrRender/shader_fingerprint.h"
 #include "../xrRender/dxWallMarkArray.h"
 #include "../xrRender/dxUIShader.h"
 
@@ -531,6 +532,8 @@ void CRender::create()
 	m_bMakeAsyncSS = false;
 
 	Target = xr_new<CRenderTarget>(); // Main target
+	m_atmo_lut.set_analytic();
+	m_atmo_acquired = false;
 
 	Models = xr_new<CModelPool>();
 	PSLibrary.OnCreate();
@@ -632,6 +635,8 @@ void CRender::reset_end()
 	HWOCC.occq_create(occq_size);
 
 	Target = xr_new<CRenderTarget>();
+	// Shaders and RTs were rebuilt - the measurement no longer describes them.
+	m_atmo_acquired = false;
 
 	//AVO: let's reload details while changed details options on vid_restart
 	if (b_loaded && ((dm_current_size != dm_size) || (ps_r__Detail_density != ps_current_detail_density) || (
@@ -2046,6 +2051,10 @@ HRESULT CRender::shader_compile(
 	if (useGeneratedShaderCache)
 		source_crc = getShaderSourceCrc32(pSrcData, SrcDataLen, ::Render->getShaderPath());
 
+	// Provenance for the atmospheric probe: both halves are already in hand here and were otherwise
+	// discarded. See Layers/xrRender/shader_fingerprint.h.
+	shader_fingerprint::record(name, source_crc, sh_name);
+
 	if (FS.exist(file_name))
 	{
 		IReader* file = FS.r_open(file_name);
@@ -2201,6 +2210,8 @@ static inline bool match_shader_id(LPCSTR const debug_shader_id, LPCSTR const fu
 #endif// #if 1
 }
 
+extern int ps_atmo_probe;
+
 bool CRender::resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out)
 {
 	out.clear();
@@ -2209,4 +2220,30 @@ bool CRender::resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& ou
 
 	Details->collect_slot(sx, sz, out);
 	return true;
+}
+
+const atmo_lut* CRender::atmosphere_lut()
+{
+	if (m_atmo_acquired)
+		return &m_atmo_lut;
+
+	// Latch on SUCCESS only. The consumer asks once per level load, so a failed probe retries on the
+	// next level instead of poisoning the session - which is what happened when the first attempt
+	// landed on fake_start, the menu backdrop, and every later level silently inherited its failure.
+	m_atmo_lut.set_analytic();
+
+	if (!ps_atmo_probe)
+	{
+		Msg("~ [perception] atmo probe disabled (perception_atmo_probe 0), using analytic curve");
+		return &m_atmo_lut;
+	}
+	if (!Target)
+		return &m_atmo_lut;
+
+	if (Target->probe_atmosphere(m_atmo_lut))
+		m_atmo_acquired = true;
+	else
+		Msg("~ [perception] atmo probe unavailable, using analytic curve (will retry on next level)");
+
+	return &m_atmo_lut;
 }

@@ -270,6 +270,11 @@ public:
 
 	virtual LPCSTR getShaderPath() = 0;
 
+	// Measured atmospheric transmittance curve, or null when this renderer does not probe.
+	// Non-pure on purpose: only R4 implements it, and null is a supported outcome, not an error -
+	// the consumer falls back to the analytic curve (ATMOSPHERE-DESIGN 6.3).
+	virtual const struct atmo_lut* atmosphere_lut() { return 0; }
+
 	// Detail objects the renderer places in one 2 m slot, by grid coordinate. Runs the engine's own
 	// placement rather than reading the camera-centred instance cache, so it answers for any slot in
 	// the level and inherits both user sliders and the slope/align rules for free.

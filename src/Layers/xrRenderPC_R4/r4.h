@@ -25,6 +25,8 @@
 class dxRender_Visual;
 
 // definition
+#include "../../Include/xrRender/AtmoLut.h"
+
 class CRender : public R_dsgraph_structure
 {
 public:
@@ -328,10 +330,17 @@ public:
 		DWORD Flags,
 		void*& result);
 
+	// Atmospheric probe state; dropped on reset_end so a vid_restart re-measures.
+	atmo_lut m_atmo_lut;
+	bool m_atmo_acquired;
+
 	// Information
 	virtual void Statistics(CGameFont* F);
 	virtual LPCSTR getShaderPath() { return "r3\\"; }
 
+	// Measured fog curve. Acquired lazily on first request - CurrentEnv does not exist until
+	// CEnvironment::load, and the probe draws, so it cannot run at renderer construction.
+	virtual const atmo_lut* atmosphere_lut();
 	virtual bool resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out);
 	virtual u32 detail_generation() { return m_detail_generation; }
 
