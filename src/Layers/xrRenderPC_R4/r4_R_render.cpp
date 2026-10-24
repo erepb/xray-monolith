@@ -251,6 +251,8 @@ void CRender::Render()
 		return;
 	}
 
+	atmosphere_remeasure_if_stale();
+
 	//.	VERIFY					(g_pGameLevel && g_pGameLevel->pHUD);
 
 	// Configure

@@ -389,6 +389,10 @@ Fvector4 ps_ssfx_floravariation = { 0.025, 0.1, 0.025, 0.05 }; // Grass Int, Gra
 Fvector4 ps_ssfx_motionblur = { 6, 0, 0, 0 }; // Samples, Intensity, Only HUD, -
 Fvector4 ps_ssfx_taa = { 1, 0.5f, 0.6f, 0 }; // Enable, Jitter, Sharpness, -
 Fvector4 ps_ssfx_fog = { 8, 1.3f, 0.1f, 0 }; // Height, Density, SunColor, -
+
+// Escape hatch for the atmospheric probe: it draws through the live combine shader, so a mod that
+// misbehaves under synthetic inputs can be worked around without a rebuild. 0 = analytic curve only.
+int ps_atmo_probe = 1;
 float ps_ssfx_fog_scattering = 0.6f; // Fog scattering intensity
 
 int ps_ssfx_pom_refine = 0;
@@ -1566,6 +1570,7 @@ void xrRender_initconsole()
 	CMD4(CCC_Vector4, "ssfx_taa", &ps_ssfx_taa, Fvector4().set(0, 0, 0, 0), Fvector4().set(1, 1, 2, 1));
 	CMD4(CCC_Vector4, "ssfx_motionblur", &ps_ssfx_motionblur, Fvector4().set(1, 0, 0, 0), Fvector4().set(16, 2, 1, 100));
 	CMD4(CCC_Float, "ssfx_fog_scattering", &ps_ssfx_fog_scattering, 0, 1);
+	CMD4(CCC_Integer, "perception_atmo_probe", &ps_atmo_probe, 0, 1);
 	CMD4(CCC_Vector4, "ssfx_fog", &ps_ssfx_fog, Fvector4().set(0, 0, 0, 0), Fvector4().set(20, 5, 1, 100));
 
 	CMD4(CCC_Integer, "ssfx_pom_refine", &ps_ssfx_pom_refine, 0, 1);

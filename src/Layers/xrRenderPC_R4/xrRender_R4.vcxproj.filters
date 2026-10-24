@@ -474,6 +474,9 @@
     <ClInclude Include="..\xrRender\r_constants_cache.h">
       <Filter>Refactored\Execution &amp; 3D\Shaders\Resources\dx10_R_shader</Filter>
     </ClInclude>
+    <ClInclude Include="..\xrRender\shader_fingerprint.h">
+      <Filter>Refactored\Execution &amp; 3D\Shaders\ShaderManager</Filter>
+    </ClInclude>
     <ClInclude Include="..\xrRender\ETextureParams.h">
       <Filter>Refactored\Execution &amp; 3D\Shaders\ShaderManager</Filter>
     </ClInclude>
@@ -1103,6 +1106,9 @@
     <ClCompile Include="r4_rendertarget_phase_bloom.cpp">
       <Filter>Core_Target</Filter>
     </ClCompile>
+    <ClCompile Include="r4_rendertarget_atmo_probe.cpp">
+      <Filter>Core_Target</Filter>
+    </ClCompile>
     <ClCompile Include="r4_rendertarget_phase_combine.cpp">
       <Filter>Core_Target</Filter>
     </ClCompile>
@@ -1212,6 +1218,9 @@
       <Filter>Refactored\Execution &amp; 3D\Shaders\ShaderManager</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRenderDX10\dx10ResourceManager_Scripting.cpp">
+      <Filter>Refactored\Execution &amp; 3D\Shaders\ShaderManager</Filter>
+    </ClCompile>
+    <ClCompile Include="..\xrRender\shader_fingerprint.cpp">
       <Filter>Refactored\Execution &amp; 3D\Shaders\ShaderManager</Filter>
     </ClCompile>
     <ClCompile Include="..\xrRender\ETextureParams.cpp">

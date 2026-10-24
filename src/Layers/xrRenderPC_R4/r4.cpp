@@ -8,6 +8,7 @@
 #include "../xrRender/SkeletonCustom.h"
 #include "../xrRender/LightTrack.h"
 #include "../xrRender/dxRenderDeviceRender.h"
+#include "../xrRender/shader_fingerprint.h"
 #include "../xrRender/dxWallMarkArray.h"
 #include "../xrRender/dxUIShader.h"
 
@@ -195,6 +196,8 @@ static class cl_meatchunks_stuff : public R_constant_setup
 
 extern ENGINE_API BOOL r2_sun_static;
 extern ENGINE_API BOOL r2_advanced_pp; //	advanced post process and effects
+extern Fvector4 ps_ssfx_fog;
+extern int ps_atmo_probe;
 //////////////////////////////////////////////////////////////////////////
 // Just two static storage
 void CRender::create()
@@ -531,6 +534,14 @@ void CRender::create()
 	m_bMakeAsyncSS = false;
 
 	Target = xr_new<CRenderTarget>(); // Main target
+	m_atmo_lut.set_analytic();
+	m_atmo_y_lo = m_atmo_y_hi = 0.f;
+	m_atmo_has_range = false;
+	m_atmo_dirty = false;
+	m_atmo_ssfx_fog = ps_ssfx_fog;
+	m_atmo_probe_on = ps_atmo_probe;
+	m_atmo_generation = 0;
+	m_atmo_next_try = 0;
 
 	Models = xr_new<CModelPool>();
 	PSLibrary.OnCreate();
@@ -632,6 +643,8 @@ void CRender::reset_end()
 	HWOCC.occq_create(occq_size);
 
 	Target = xr_new<CRenderTarget>();
+	// Shaders and RTs were rebuilt - the measurement no longer describes them.
+	m_atmo_dirty = true;
 
 	//AVO: let's reload details while changed details options on vid_restart
 	if (b_loaded && ((dm_current_size != dm_size) || (ps_r__Detail_density != ps_current_detail_density) || (
@@ -2046,6 +2059,10 @@ HRESULT CRender::shader_compile(
 	if (useGeneratedShaderCache)
 		source_crc = getShaderSourceCrc32(pSrcData, SrcDataLen, ::Render->getShaderPath());
 
+	// Provenance for the atmospheric probe: both halves are already in hand here and were otherwise
+	// discarded. See Layers/xrRender/shader_fingerprint.h.
+	shader_fingerprint::record(name, source_crc, sh_name);
+
 	if (FS.exist(file_name))
 	{
 		IReader* file = FS.r_open(file_name);
@@ -2209,4 +2226,50 @@ bool CRender::resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& ou
 
 	Details->collect_slot(sx, sz, out);
 	return true;
+}
+
+const atmo_lut* CRender::atmosphere_lut(float y_lo, float y_hi)
+{
+	m_atmo_y_lo = y_lo;
+	m_atmo_y_hi = y_hi;
+	m_atmo_has_range = true;
+	atmosphere_measure();
+	return &m_atmo_lut;
+}
+
+// A failed probe leaves the analytic curve and is retried at the next level load or setting change.
+void CRender::atmosphere_measure()
+{
+	m_atmo_lut.set_analytic();
+	m_atmo_dirty = false;
+	m_atmo_ssfx_fog = ps_ssfx_fog;
+	m_atmo_probe_on = ps_atmo_probe;
+	++m_atmo_generation;
+
+	if (!ps_atmo_probe)
+	{
+		Msg("~ [perception] atmo probe disabled (perception_atmo_probe 0), using analytic curve");
+		return;
+	}
+	if (!Target)
+		return;
+
+	if (!Target->probe_atmosphere(m_atmo_lut, m_atmo_y_lo, m_atmo_y_hi))
+		Msg("~ [perception] atmo probe unavailable, using analytic curve (will retry on next level)");
+}
+
+// Render thread, before any target is bound this frame (ATMOSPHERE-DESIGN 6.2b).
+void CRender::atmosphere_remeasure_if_stale()
+{
+	if (!m_atmo_has_range || Device.dwTimeGlobal < m_atmo_next_try)
+		return;
+	const Fvector4& f = ps_ssfx_fog;
+	const Fvector4& g = m_atmo_ssfx_fog;
+	if (!m_atmo_dirty && f.x == g.x && f.y == g.y && f.z == g.z && f.w == g.w && ps_atmo_probe == m_atmo_probe_on)
+		return;
+
+	m_atmo_next_try = Device.dwTimeGlobal + 1000;
+	Msg("~ [perception] atmo probe: re-measuring (%s)",
+	    m_atmo_dirty ? "device reset" : (ps_atmo_probe != m_atmo_probe_on ? "perception_atmo_probe changed" : "ssfx_fog changed"));
+	atmosphere_measure();
 }

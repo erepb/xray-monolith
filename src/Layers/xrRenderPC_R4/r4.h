@@ -25,6 +25,8 @@
 class dxRender_Visual;
 
 // definition
+#include "../../Include/xrRender/AtmoLut.h"
+
 class CRender : public R_dsgraph_structure
 {
 public:
@@ -328,10 +330,29 @@ public:
 		DWORD Flags,
 		void*& result);
 
+	// Atmospheric probe state (ATMOSPHERE-DESIGN 6.2b). The range is the last level's; dirty asks the
+	// next frame to re-measure over it, as do changes to ps_ssfx_fog and ps_atmo_probe.
+	atmo_lut m_atmo_lut;
+	float m_atmo_y_lo, m_atmo_y_hi;
+	bool m_atmo_has_range;
+	bool m_atmo_dirty;
+	Fvector4 m_atmo_ssfx_fog;
+	int m_atmo_probe_on;
+	u32 m_atmo_generation;
+	u32 m_atmo_next_try;
+
+	void atmosphere_measure();
+	void atmosphere_remeasure_if_stale();
+
 	// Information
 	virtual void Statistics(CGameFont* F);
 	virtual LPCSTR getShaderPath() { return "r3\\"; }
 
+	// Measured fog curve. Requested at level load - CurrentEnv does not exist until CEnvironment::load,
+	// and the probe draws, so it cannot run at renderer construction.
+	virtual const atmo_lut* atmosphere_lut(float y_lo, float y_hi);
+	virtual const atmo_lut* atmosphere_lut_current() { return &m_atmo_lut; }
+	virtual u32 atmosphere_generation() { return m_atmo_generation; }
 	virtual bool resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out);
 	virtual u32 detail_generation() { return m_detail_generation; }
 
