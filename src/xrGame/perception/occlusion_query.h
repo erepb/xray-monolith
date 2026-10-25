@@ -49,6 +49,7 @@ namespace perception
 		mutable bool record = false;
 		mutable xr_vector<veg_chord> last_chords;
 		mutable xr_vector<veg_chord> last_canopy;
+		mutable xr_vector<canopy_hit> last_canopy_hits;
 		mutable xr_vector<hit_mark> last_hits;
 
 		// Cached-vs-traced static geometry error. Free to collect: this stage traces both anyway.

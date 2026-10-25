@@ -61,7 +61,6 @@ namespace perception
 			void add_sticky(const ray_record& r);
 			void add_sticky(const chord_record& c);
 			void add_sticky(const point_record& p);
-			void clear_sticky();
 
 			// Consumer side, driven from CLevel::OnRender.
 			void flush();

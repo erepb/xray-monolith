@@ -1961,6 +1961,7 @@
     <ClInclude Include="perception\foliage_oracle.h" />
     <ClInclude Include="perception\canopy_data.h" />
     <ClInclude Include="perception\canopy_oracle.h" />
+    <ClInclude Include="perception\coverage_lod.h" />
     <ClInclude Include="perception\slot_walk.h" />
     <ClInclude Include="perception\foliage_profile.h" />
     <ClInclude Include="perception\perception_debug.h" />
@@ -4211,6 +4212,7 @@
     <ClCompile Include="perception\foliage_oracle.cpp" />
     <ClCompile Include="perception\canopy_data.cpp" />
     <ClCompile Include="perception\canopy_oracle.cpp" />
+    <ClCompile Include="perception\coverage_lod.cpp" />
     <ClCompile Include="perception\slot_walk.cpp" />
     <ClCompile Include="perception\foliage_profile.cpp" />
     <ClCompile Include="perception\perception_debug.cpp" />

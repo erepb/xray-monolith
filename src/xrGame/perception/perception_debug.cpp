@@ -71,12 +71,13 @@ namespace perception
 			return D3DCOLOR_XRGB(int((1.f - t) * 255.f), int(t * 255.f), 0);
 		}
 
-		// One chord is now one crossed tuft, and `blocked` is already the 0..1 opaque fraction of it.
-		static IC u32 chord_colour(float blocked)
+		// One chord is one crossed tuft or crown, and `blocked` is already the 0..1 opaque fraction of
+		// it. The crown the eye is inside is cyan, everything else yellow.
+		static IC u32 chord_colour(float blocked, bool inside)
 		{
 			clamp(blocked, 0.f, 1.f);
 			const int v = int((0.35f + 0.65f * blocked) * 255.f);
-			return D3DCOLOR_XRGB(v, v, 0);
+			return inside ? D3DCOLOR_XRGB(0, v, v) : D3DCOLOR_XRGB(v, v, 0);
 		}
 
 		static IC u32 dimmed(u32 c, float k)
@@ -139,7 +140,6 @@ namespace perception
 		void sink::add_sticky(const ray_record& r) { m_sticky.rays.push_back(r); }
 		void sink::add_sticky(const chord_record& c) { m_sticky.chords.push_back(c); }
 		void sink::add_sticky(const point_record& p) { m_sticky.points.push_back(p); }
-		void sink::clear_sticky() { m_sticky.clear(); }
 
 		void sink::clear()
 		{
@@ -182,12 +182,12 @@ namespace perception
 			for (u32 i = 0; i < b.chords.size(); ++i)
 			{
 				const chord_record& x = b.chords[i];
-				r.draw_line(Fidentity, x.enter, x.exit, chord_colour(x.blocked), false);
+				r.draw_line(Fidentity, x.enter, x.exit, chord_colour(x.blocked, x.inside), false);
 				if (g_draw_tufts && x.radius > 0.f)
 				{
 					Fvector c = x.origin;
 					c.y = (x.y_lo + x.y_hi) * .5f;
-					r.draw_aabb(c, x.radius, (x.y_hi - x.y_lo) * .5f, x.radius, dimmed(chord_colour(x.blocked), 0.4f), false);
+					r.draw_aabb(c, x.radius, (x.y_hi - x.y_lo) * .5f, x.radius, dimmed(chord_colour(x.blocked, x.inside), 0.4f), false);
 					if (x.core_radius > 0.f && x.core_top > x.y_lo)
 					{
 						c.y = (x.y_lo + x.core_top) * .5f;

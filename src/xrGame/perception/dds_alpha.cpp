@@ -5,21 +5,13 @@ namespace perception
 {
 	static const u32 DDS_MAGIC = 0x20534444; // 'DDS '
 	static const u32 HDR_SIZE = 128;
+	static const u32 DX10_EXTRA = 20;
 
 	static const u32 FOURCC_DXT1 = 0x31545844;
 	static const u32 FOURCC_DXT3 = 0x33545844;
 	static const u32 FOURCC_DXT5 = 0x35545844;
-
-	// grid resolution per axis when probing a rect; 32x32 puts the sampling error near 1.5%, well
-	// under the u8 quantisation the density field applies afterwards
-	static const u32 SAMPLES_PER_AXIS = 32;
-
-	static const u32 GAP_BLOCKS_PER_AXIS = 8;   // 8x8 contiguous blocks over the rect
-	static const u32 GAP_SAMPLES_PER_AXIS = 4;  // 4x4 lattice inside each block -> 1024 total
-	static const float GAP_COVERAGE = 0.1f;     // a block this empty is a hole a sample can pass
-
-	static_assert(GAP_BLOCKS_PER_AXIS * GAP_SAMPLES_PER_AXIS == SAMPLES_PER_AXIS,
-	              "gap block/lattice split must keep the same per-axis sample budget");
+	static const u32 FOURCC_DX10 = 0x30315844;
+	static const u32 FOURCC_BC7 = 0x20374342;
 
 	static IC u32 rd32(const u8* p, u32 off) { return *(const u32*)(p + off); }
 
@@ -29,16 +21,17 @@ namespace perception
 		{
 		case FOURCC_DXT1: return 8;
 		case FOURCC_DXT3:
-		case FOURCC_DXT5: return 16;
+		case FOURCC_DXT5:
+		case FOURCC_BC7: return 16;
 		default: return 0;
 		}
 	}
 
 	static const u32 MAX_DIM = 16384; // keeps every intermediate below 2^31 for all accepted formats
 
-	static IC u64 level_bytes(const dds_info& i, u32 w, u32 h)
+	static IC u64 level_bytes(const dds_info& i)
 	{
-		const u64 w64 = w, h64 = h;
+		const u64 w64 = i.width, h64 = i.height;
 		if (i.fourcc)
 		{
 			const u64 bx = _max(u64(1), (w64 + 3) / 4);
@@ -60,11 +53,38 @@ namespace perception
 		out.fourcc = (pf_flags & 0x4) ? rd32(data, 84) : 0;
 		out.bits = rd32(data, 88);
 		out.amask = (pf_flags & (0x1 | 0x2)) ? rd32(data, 104) : 0;
+		out.data_offset = HDR_SIZE;
+
+		if (out.fourcc == FOURCC_DX10)
+		{
+			if (size < HDR_SIZE + DX10_EXTRA)
+				return false;
+			const u32 dxgi = rd32(data, HDR_SIZE);
+			const u32 dimension = rd32(data, HDR_SIZE + 4);
+			const u32 misc = rd32(data, HDR_SIZE + 8);
+			const u32 array_size = rd32(data, HDR_SIZE + 12);
+			if (dimension != 3 || array_size > 1 || (misc & 0x4))
+				return false;
+			out.data_offset = HDR_SIZE + DX10_EXTRA;
+			switch (dxgi)
+			{
+			case 70: case 71: case 72: out.fourcc = FOURCC_DXT1; break;
+			case 73: case 74: case 75: out.fourcc = FOURCC_DXT3; break;
+			case 76: case 77: case 78: out.fourcc = FOURCC_DXT5; break;
+			case 97: case 98: case 99: out.fourcc = FOURCC_BC7; break;
+			case 27: case 28: case 29: case 87: case 90: case 91:
+				out.fourcc = 0;
+				out.bits = 32;
+				out.amask = 0xFF000000;
+				break;
+			default: return false;
+			}
+		}
 
 		if (!out.width || !out.height || out.width > MAX_DIM || out.height > MAX_DIM)
 			return false;
 		if (out.fourcc && !block_bytes(out.fourcc))
-			return false; // DX10 header and friends: not handled
+			return false;
 		if (!out.fourcc && out.bits != 32)
 			return false;
 
@@ -115,6 +135,125 @@ namespace perception
 		return ((6 - idx) * a0 + (idx - 1) * a1) / 5;
 	}
 
+	// Tables and bit layout from the D3D11 BC7 format spec (DirectXTex BC6HBC7.cpp).
+	static const u16 BC7_PART2[64] = {
+		0xcccc, 0x8888, 0xeeee, 0xecc8, 0xc880, 0xfeec, 0xfec8, 0xec80,
+		0xc800, 0xffec, 0xfe80, 0xe800, 0xffe8, 0xff00, 0xfff0, 0xf000,
+		0xf710, 0x008e, 0x7100, 0x08ce, 0x008c, 0x7310, 0x3100, 0x8cce,
+		0x088c, 0x3110, 0x6666, 0x366c, 0x17e8, 0x0ff0, 0x718e, 0x399c,
+		0xaaaa, 0xf0f0, 0x5a5a, 0x33cc, 0x3c3c, 0x55aa, 0x9696, 0xa55a,
+		0x73ce, 0x13c8, 0x324c, 0x3bdc, 0x6996, 0xc33c, 0x9966, 0x0660,
+		0x0272, 0x04e4, 0x4e40, 0x2720, 0xc936, 0x936c, 0x39c6, 0x639c,
+		0x9336, 0x9cc6, 0x817e, 0xe718, 0xccf0, 0x0fcc, 0x7744, 0xee22,
+	};
+
+	static const u8 BC7_ANCHOR2[64] = {
+		15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
+		15, 2, 8, 2, 2, 8, 8, 15, 2, 8, 2, 2, 8, 8, 2, 2,
+		15, 15, 6, 8, 2, 8, 15, 15, 2, 8, 2, 2, 2, 15, 15, 6,
+		6, 2, 6, 8, 15, 15, 2, 2, 15, 15, 15, 15, 15, 2, 2, 15,
+	};
+
+	struct bc7_mode
+	{
+		u8 part_bits, rot_bits, idxmode_bits, pbits, idx_prec, idx_prec2;
+		u8 prec[4], precp[4];
+	};
+
+	// Modes 4-7; modes 0-3 carry no alpha.
+	static const bc7_mode BC7_MODES[4] = {
+		{0, 2, 1, 0, 2, 3, {5, 5, 5, 6}, {5, 5, 5, 6}},
+		{0, 2, 0, 0, 2, 2, {7, 7, 7, 8}, {7, 7, 7, 8}},
+		{0, 0, 0, 2, 4, 0, {7, 7, 7, 7}, {8, 8, 8, 8}},
+		{6, 0, 0, 4, 2, 0, {5, 5, 5, 5}, {6, 6, 6, 6}},
+	};
+
+	static const u8 BC7_W2[4] = {0, 21, 43, 64};
+	static const u8 BC7_W3[8] = {0, 9, 18, 27, 37, 46, 55, 64};
+	static const u8 BC7_W4[16] = {0, 4, 9, 13, 17, 21, 26, 30, 34, 38, 43, 47, 51, 55, 60, 64};
+
+	static IC const u8* bc7_weights(u32 prec)
+	{
+		return prec == 2 ? BC7_W2 : prec == 3 ? BC7_W3 : BC7_W4;
+	}
+
+	// Bits [pos, pos + n) of the 128-bit block, n <= 8.
+	static IC u32 bc7_get(u64 lo, u64 hi, u32 pos, u32 n)
+	{
+		const u64 mask = (u64(1) << n) - 1;
+		if (pos >= 64)
+			return u32((hi >> (pos - 64)) & mask);
+		if (pos + n <= 64)
+			return u32((lo >> pos) & mask);
+		return u32(((lo >> pos) | (hi << (64 - pos))) & mask);
+	}
+
+	static IC u32 bc7_lerp(u32 a, u32 b, u32 w)
+	{
+		return (a * (64 - w) + b * w + 32) >> 6;
+	}
+
+	// Reads only the two endpoint values and the index that texel (tx, ty)'s alpha needs.
+	static u32 bc7_alpha(const u8* blk, u32 tx, u32 ty)
+	{
+		u64 lo, hi;
+		memcpy(&lo, blk, 8);
+		memcpy(&hi, blk + 8, 8);
+
+		u32 mode = 0;
+		while (mode < 8 && !((lo >> mode) & 1))
+			++mode;
+		if (mode >= 8)
+			return 0;
+		if (mode < 4)
+			return 255;
+
+		const bc7_mode& m = BC7_MODES[mode - 4];
+		u32 pos = mode + 1;
+		const u32 shape = bc7_get(lo, hi, pos, m.part_bits);
+		pos += m.part_bits;
+		const u32 rot = bc7_get(lo, hi, pos, m.rot_bits);
+		pos += m.rot_bits;
+		const u32 idxmode = bc7_get(lo, hi, pos, m.idxmode_bits);
+		pos += m.idxmode_bits;
+		const u32 nep = mode == 7 ? 4 : 2;
+
+		const u32 ch = rot ? rot - 1 : 3;
+		u32 ch_pos = pos;
+		u32 total = 0;
+		for (u32 k = 0; k < 4; ++k)
+		{
+			if (k == ch)
+				ch_pos = pos + total;
+			total += nep * m.prec[k];
+		}
+		const u32 pbase = pos + total;
+		const u32 ibase = pbase + m.pbits;
+
+		const u32 i = ty * 4 + tx;
+		const u32 region = mode == 7 ? (BC7_PART2[shape] >> i) & 1 : 0;
+		u32 e[2];
+		for (u32 k = 0; k < 2; ++k)
+		{
+			const u32 ep = region * 2 + k;
+			u32 v = bc7_get(lo, hi, ch_pos + ep * m.prec[ch], m.prec[ch]);
+			if (m.pbits && m.prec[ch] != m.precp[ch])
+				v = (v << 1) | bc7_get(lo, hi, pbase + ep * m.pbits / nep, 1);
+			v = (v << (8 - m.precp[ch])) & 0xFF;
+			e[k] = v | (v >> m.precp[ch]);
+		}
+
+		const bool set2 = m.idx_prec2 && (rot ? idxmode == 1 : idxmode == 0);
+		const u32 iprec = set2 ? m.idx_prec2 : m.idx_prec;
+		const u32 anchor2 = BC7_ANCHOR2[shape];
+		const bool anchored = !set2 && mode == 7;
+		const u32 off = i * iprec - (i > 0 ? 1 : 0) - (anchored && i > anchor2 ? 1 : 0);
+		const u32 start = set2 ? ibase + 16 * m.idx_prec - 1 : ibase;
+		const bool fix = i == 0 || (anchored && i == anchor2);
+		const u32 w = bc7_get(lo, hi, start + off, fix ? iprec - 1 : iprec);
+		return bc7_lerp(e[0], e[1], bc7_weights(iprec)[w]);
+	}
+
 	static IC u32 texel_alpha(const dds_info& i, const u8* lvl, u32 w, u32 x, u32 y)
 	{
 		if (!i.fourcc)
@@ -138,19 +277,22 @@ namespace perception
 		{
 		case FOURCC_DXT1: return dxt1_alpha(blk, tx, ty);
 		case FOURCC_DXT3: return dxt3_alpha(blk, tx, ty);
+		case FOURCC_BC7: return bc7_alpha(blk, tx, ty);
 		default: return dxt5_alpha(blk, tx, ty);
 		}
 	}
 
+	static const u8* mip0(const u8* data, u32 size, dds_info& i)
+	{
+		if (!dds_probe(data, size, i) || u64(i.data_offset) + level_bytes(i) > u64(size))
+			return 0;
+		return data + i.data_offset;
+	}
+
 	bool dds_alpha_view::open(const u8* data, u32 size)
 	{
-		m_lvl = 0;
-		if (!dds_probe(data, size, m_info))
-			return false;
-		if (u64(HDR_SIZE) + level_bytes(m_info, m_info.width, m_info.height) > u64(size))
-			return false;
-		m_lvl = data + HDR_SIZE;
-		return true;
+		m_lvl = mip0(data, size, m_info);
+		return 0 != m_lvl;
 	}
 
 	u32 dds_alpha_view::alpha(float u, float v) const
@@ -164,112 +306,86 @@ namespace perception
 
 	// --------------------------------------------------------------------------
 
-	bool dds_mean_alpha(const u8* data, u32 size, const uv_rect& uv, float& out_alpha, u32 min_res,
-	                    float* out_gap)
+	static const u32 CELL_BLOCKS_MAX = 8;  // blocks per cell axis read in full; past this, a subset
+	static const u32 CELL_BLOCKS_READ = 4; // blocks per cell axis in that subset
+	static const u32 CELL_TEXELS_MAX = 8;  // texel lattice per cell axis where blocks cannot be counted
+
+	static IC u32 popcount32(u32 x)
+	{
+		x = x - ((x >> 1) & 0x55555555u);
+		x = (x & 0x33333333u) + ((x >> 2) & 0x33333333u);
+		return (((x + (x >> 4)) & 0x0f0f0f0fu) * 0x01010101u) >> 24;
+	}
+
+	// Texels of a DXT1 block that are drawn: all 16 in opaque mode, otherwise those whose index is not 3.
+	static IC u32 dxt1_drawn(const u8* blk)
+	{
+		const u16 c0 = *(const u16*)(blk + 0);
+		const u16 c1 = *(const u16*)(blk + 2);
+		if (c0 > c1)
+			return 16;
+		const u32 bits = rd32(blk, 4);
+		return 16 - popcount32(bits & (bits >> 1) & 0x55555555u);
+	}
+
+	bool dds_coverage_grid(const u8* data, u32 size, u32 res, float alpha_ref, xr_vector<u8>& out)
 	{
 		dds_info i;
-		if (!dds_probe(data, size, i))
+		const u8* lvl = mip0(data, size, i);
+		if (!lvl || !res || (res & (res - 1)) || res > i.width || res > i.height)
 			return false;
 
-		// DXT1 carries one bit of alpha per texel behind a per-block mode flag, so whoever generated
-		// the mips had to threshold rather than average - and the vanilla atlases disagree about which
-		// way to round. Measured on the 64x64 mip against mip 0: l07_military reads 0.099 vs 0.171 and
-		// decays to zero, k00_marsh reads 0.845 vs 0.193 and saturates to one. Only mip 0 means
-		// anything for this format. Formats with 8-bit alpha box-filter linearly, so their mips keep
-		// the mean and stay cheap to read.
-		if (FOURCC_DXT1 == i.fourcc)
-			min_res = i.width;
+		const u32 w = i.width, h = i.height;
+		out.assign(size_t(res) * res, 0);
 
-		// walk down the mip chain while the next level is still wide enough
-		u32 w = i.width, h = i.height, off = HDR_SIZE;
-		for (u32 m = 1; m < i.mips; ++m)
+		if (FOURCC_DXT1 == i.fourcc && 0 == w % (4 * res) && 0 == h % (4 * res))
 		{
-			const u32 nw = _max(1u, w / 2), nh = _max(1u, h / 2);
-			if (nw < min_res)
-				break;
-			const u64 sz = level_bytes(i, w, h);
-			if (u64(off) + sz + level_bytes(i, nw, nh) > u64(size))
-				break;
-			off += u32(sz);
-			w = nw;
-			h = nh;
-		}
-		if (u64(off) + level_bytes(i, w, h) > u64(size))
-			return false;
-
-		const u8* lvl = data + off;
-
-		u32 x0 = 0, x1 = w, y0 = 0, y1 = h;
-		if (uv.valid())
-		{
-			// wrap into [0,1); each axis is restricted independently so a rect that wraps in one
-			// axis doesn't fall back to a whole-image probe on the other
-			const float du = uv.u1 - uv.u0, dv = uv.v1 - uv.v0;
-			if (du < 1.f)
-			{
-				const float fu = uv.u0 - floorf(uv.u0);
-				x0 = u32(fu * w);
-				x1 = x0 + _max(1u, u32(du * w + 0.5f));
-			}
-			if (dv < 1.f)
-			{
-				const float fv = uv.v0 - floorf(uv.v0);
-				y0 = u32(fv * h);
-				y1 = y0 + _max(1u, u32(dv * h + 0.5f));
-			}
-		}
-
-		// Sampling mip 0 means the rect can be millions of texels, so step across it instead of
-		// reading it whole: a regular grid is an unbiased estimator of coverage and bounds a
-		// whole-atlas probe and a single-quad probe to the same cost. Small rects are read densely.
-		//
-		// The grid is grouped into GAP_BLOCKS_PER_AXIS^2 contiguous neighbourhoods (each holding a
-		// GAP_SAMPLES_PER_AXIS^2 lattice) rather than spread evenly, because a uniformly-strided grid
-		// cannot resolve structure smaller than its stride - gap fraction needs per-block coverage.
-		// Total sample count and cost are unchanged from a flat SAMPLES_PER_AXIS^2 grid.
-		const u32 rw = x1 - x0, rh = y1 - y0;
-		const u32 nbx = _min(GAP_BLOCKS_PER_AXIS, rw);
-		const u32 nby = _min(GAP_BLOCKS_PER_AXIS, rh);
-
-		u32 total = 0, count = 0, gap_blocks = 0;
-		for (u32 by = 0; by < nby; ++by)
-		{
-			const u32 by0 = y0 + (by * rh) / nby;
-			const u32 by1 = y0 + ((by + 1) * rh) / nby;
-			const u32 nsy = _min(GAP_SAMPLES_PER_AXIS, by1 - by0);
-			const u32 syb = _max(1u, (by1 - by0) / nsy);
-
-			for (u32 bx = 0; bx < nbx; ++bx)
-			{
-				const u32 bx0 = x0 + (bx * rw) / nbx;
-				const u32 bx1 = x0 + ((bx + 1) * rw) / nbx;
-				const u32 nsx = _min(GAP_SAMPLES_PER_AXIS, bx1 - bx0);
-				const u32 sxb = _max(1u, (bx1 - bx0) / nsx);
-
-				u32 b_total = 0, b_count = 0;
-				for (u32 y = by0; y < by1; y += syb)
+			const u32 row = w / 4;
+			const u32 nbx = w / res / 4, nby = h / res / 4;
+			const u32 sx = nbx > CELL_BLOCKS_MAX ? nbx / CELL_BLOCKS_READ : 1;
+			const u32 sy = nby > CELL_BLOCKS_MAX ? nby / CELL_BLOCKS_READ : 1;
+			for (u32 cy = 0; cy < res; ++cy)
+				for (u32 cx = 0; cx < res; ++cx)
 				{
-					const u32 yy = y % h;
-					for (u32 x = bx0; x < bx1; x += sxb)
+					u32 drawn = 0, n = 0;
+					for (u32 by = 0; by < nby; by += sy)
 					{
-						b_total += texel_alpha(i, lvl, w, x % w, yy);
-						++b_count;
+						const u8* blk = lvl + (size_t(cy * nby + by) * row + cx * nbx) * 8;
+						for (u32 bx = 0; bx < nbx; bx += sx)
+						{
+							drawn += dxt1_drawn(blk + bx * 8);
+							n += 16;
+						}
+					}
+					out[cy * res + cx] = u8((drawn * 255 + n / 2) / n);
+				}
+			return true;
+		}
+
+		const u32 ref = u32(alpha_ref * 255.f + .5f);
+		for (u32 cy = 0; cy < res; ++cy)
+		{
+			const u32 y0 = cy * h / res, y1 = (cy + 1) * h / res;
+			const u32 ny = _min(CELL_TEXELS_MAX, y1 - y0);
+			for (u32 cx = 0; cx < res; ++cx)
+			{
+				const u32 x0 = cx * w / res, x1 = (cx + 1) * w / res;
+				const u32 nx = _min(CELL_TEXELS_MAX, x1 - x0);
+				u32 drawn = 0;
+				for (u32 sy = 0; sy < ny; ++sy)
+				{
+					const u32 y = y0 + ((2 * sy + 1) * (y1 - y0)) / (2 * ny);
+					for (u32 sx = 0; sx < nx; ++sx)
+					{
+						const u32 x = x0 + ((2 * sx + 1) * (x1 - x0)) / (2 * nx);
+						if (texel_alpha(i, lvl, w, x, y) >= ref)
+							++drawn;
 					}
 				}
-
-				total += b_total;
-				count += b_count;
-				if (b_count && float(b_total) < GAP_COVERAGE * 255.f * float(b_count))
-					++gap_blocks;
+				const u32 n = nx * ny;
+				out[cy * res + cx] = u8((drawn * 255 + n / 2) / n);
 			}
 		}
-
-		if (!count)
-			return false;
-
-		out_alpha = float(total) / float(count) / 255.f;
-		if (out_gap)
-			*out_gap = float(gap_blocks) / float(nbx * nby);
 		return true;
 	}
 }
