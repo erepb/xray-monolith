@@ -36,9 +36,9 @@ canopy_k                       = 1.00
 ; Tunable live from the console as perception_atmosphere_k.
 atmosphere_k                   = 1.00
 
-; Metres. Clamps the height band used for the cheap "is this ray anywhere near grass" reject before
-; a slot is resolved. Slot bounds run to 11-22 m where a slot straddles a cliff, so this trims the
-; outliers. It never scales an instance - only the pre-reject. 0 disables the clamp.
+; Metres. Clamps the terrain part of the height band used for the cheap "is this ray anywhere near
+; grass" reject before a slot is resolved. Slot bounds run to 11-22 m where a slot straddles a cliff,
+; so this trims the outliers; the grass height on top is never clamped. 0 disables the clamp.
 max_slab_h                     = 4.00
 
 ; Grass slots worked out per frame, for all NPCs together. A slot not reached in time counts as
@@ -46,6 +46,11 @@ max_slab_h                     = 4.00
 ; perception_cache shows it as budget denials and a degraded share above zero. Each slot costs
 ; roughly 7-18 us, so 64 is about 0.5-1 ms in the worst frame. Range 1-4096.
 resolve_budget                 = 64
+
+; Alpha a grass texel needs to count as drawn, 0..1. Must match the cutoff the grass shader clips at:
+; def_aref in shaders\r3\common_defines.h, 200/255 in vanilla and in the GAMMA shader packs. Change it
+; only together with a shader pack that changes def_aref.
+alpha_ref                      = 0.784
 
 ; Grass slots kept once worked out (~320 bytes each, 8192 is about 2.6 MB). Too small and the same
 ; slots are worked out again every few seconds, which spends the budget above. Range 1024-262144.

@@ -5,8 +5,6 @@
 #include "xrEngine/IGame_Persistent.h"
 #include "ParticlesObject.h"
 #include "Level.h"
-#include "perception/foliage_oracle.h"
-#include "perception/canopy_oracle.h"
 #include "perception/occlusion_query.h"
 #include "perception/perception_debug.h"
 #include "HUDManager.h"
@@ -296,11 +294,7 @@ CLevel::~CLevel()
 	delete_data(hud_zones_list);
 	hud_zones_list = nullptr;
 	Msg("- Destroying level");
-#ifdef PERCEPTION_V2
 	perception::occlusion::on_level_unload();
-	perception::canopy_oracle::instance().on_level_unload();
-	perception::foliage_oracle::instance().on_level_unload();
-#endif
 	Engine.Event.Handler_Detach(eEntitySpawn, this);
 	Engine.Event.Handler_Detach(eEnvironment, this);
 	Engine.Event.Handler_Detach(eChangeTrack, this);
@@ -1063,9 +1057,8 @@ void CLevel::OnFrame()
 	}
 	// Inherited update
 	inherited::OnFrame();
-	// Refills the grass resolve budget. Must run before any trace this frame, so it sits with the
-	// other perception per-frame work rather than inside the oracle's own lazy paths.
-	perception::foliage_oracle::instance().on_frame();
+	// Must run before any trace this frame.
+	perception::occlusion::on_frame();
 	perception::debug::on_frame();
 	// Draw client/server stats
 	if (!g_dedicated_server && psDeviceFlags.test(rsStatistic))

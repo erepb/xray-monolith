@@ -66,11 +66,11 @@ namespace perception
 		bool m_ready = false;
 	};
 
-	// Level hooks for the whole occlusion half of the module, so Level.cpp/Level_load.cpp gain one
-	// call each rather than one per component.
+	// Level hooks for the whole module.
 	namespace occlusion
 	{
 		void on_level_load();
 		void on_level_unload();
+		void on_frame();
 	}
 }

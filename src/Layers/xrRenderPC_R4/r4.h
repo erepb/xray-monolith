@@ -355,6 +355,8 @@ public:
 	virtual u32 atmosphere_generation() { return m_atmo_generation; }
 	virtual bool resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out);
 	virtual u32 detail_generation() { return m_detail_generation; }
+	virtual float detail_height();
+	virtual float detail_slope();
 
 	virtual ref_shader getShader(int id);
 	virtual IRender_Sector* getSector(int id);

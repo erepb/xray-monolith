@@ -142,6 +142,26 @@ namespace perception
 		}
 	}
 
+	bool dds_alpha_view::open(const u8* data, u32 size)
+	{
+		m_lvl = 0;
+		if (!dds_probe(data, size, m_info))
+			return false;
+		if (u64(HDR_SIZE) + level_bytes(m_info, m_info.width, m_info.height) > u64(size))
+			return false;
+		m_lvl = data + HDR_SIZE;
+		return true;
+	}
+
+	u32 dds_alpha_view::alpha(float u, float v) const
+	{
+		VERIFY(m_lvl);
+		const u32 w = m_info.width, h = m_info.height;
+		const u32 x = _min(u32((u - floorf(u)) * float(w)), w - 1);
+		const u32 y = _min(u32((v - floorf(v)) * float(h)), h - 1);
+		return texel_alpha(m_info, m_lvl, w, x, y);
+	}
+
 	// --------------------------------------------------------------------------
 
 	bool dds_mean_alpha(const u8* data, u32 size, const uv_rect& uv, float& out_alpha, u32 min_res,

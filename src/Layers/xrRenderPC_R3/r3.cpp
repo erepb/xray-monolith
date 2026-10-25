@@ -1892,3 +1892,13 @@ bool CRender::resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& ou
 	Details->collect_slot(sx, sz, out);
 	return true;
 }
+
+float CRender::detail_height()
+{
+	return ps_current_detail_height;
+}
+
+float CRender::detail_slope()
+{
+	return ps_ssfx_terrain_grass_slope;
+}

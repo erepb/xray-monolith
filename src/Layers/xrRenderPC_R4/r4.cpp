@@ -2228,6 +2228,16 @@ bool CRender::resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& ou
 	return true;
 }
 
+float CRender::detail_height()
+{
+	return ps_current_detail_height;
+}
+
+float CRender::detail_slope()
+{
+	return ps_ssfx_terrain_grass_slope;
+}
+
 const atmo_lut* CRender::atmosphere_lut(float y_lo, float y_hi)
 {
 	m_atmo_y_lo = y_lo;

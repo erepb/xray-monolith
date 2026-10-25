@@ -62,6 +62,16 @@ namespace perception
 	{
 		Fvector enter, exit;
 		float blocked; // 0..1 fraction of this crossing that is opaque
+
+		// The crossed grass tuft, world space; radius 0 for a canopy cell.
+		Fvector origin = {0.f, 0.f, 0.f};
+		float radius = 0.f;                 // bounding cylinder
+		float y_lo = 0.f, y_hi = 0.f;
+		float core_radius = 0.f;            // 90 % of the drawn opaque area lies inside
+		float core_top = 0.f;               // 95 % lies below
+		float scale = 0.f;
+		float tau = 0.f;
+		u16 model = 0xffff;
 	};
 
 	// A point on the near surface is hit by its own shape at the end of the segment, give or take

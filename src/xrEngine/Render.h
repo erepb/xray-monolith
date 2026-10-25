@@ -294,8 +294,15 @@ public:
 		return false;
 	}
 
-	// Bumped whenever placement changes, so consumers can drop cached instances.
+	// Bumped when Details is rebuilt, so consumers can drop cached instances. Height and slope are
+	// read live through detail_height() / detail_slope().
 	virtual u32 detail_generation() { return 0; }
+
+	// The height slider placement multiplies every detail instance's scale by, as it stands now.
+	virtual float detail_height() { return 1.f; }
+
+	// The terrain slope limit placement rejects instances by, as it stands now.
+	virtual float detail_slope() { return 1.f; }
 
 	// virtual ref_shader getShader (int id) = 0;
 	virtual IRender_Sector* getSector(int id) = 0;

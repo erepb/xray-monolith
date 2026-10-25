@@ -50,7 +50,6 @@
 #define SPATIAL_CHANGE									// Upgrade spatial and feel_vision.
 
 // PERCEPTION (vision 2.0):
-#define PERCEPTION_V2									// foliage oracle + graded occlusion data layer
 #define PERCEPTION_DEBUG								// perception logging/profiling. Independent of DEBUG on purpose:
 														// tuning happens in release builds. Comment out to strip entirely.
 //-PERCEPTION

@@ -66,6 +66,7 @@ namespace perception
 
 		foliage_oracle::instance().set_max_slab_h(m_model.max_slab_h);
 		foliage_oracle::instance().set_resolve_limits(m_model.resolve_budget, m_model.resolve_cache_slots);
+		foliage_oracle::instance().set_alpha_ref(m_model.alpha_ref);
 		m_ready = true;
 	}
 
@@ -326,6 +327,8 @@ namespace perception
 			atmosphere::instance().on_level_load();
 			occlusion_query::instance().on_level_load();
 			PDBG_ONLY(shadow::on_level_load());
+			foliage_oracle::instance().on_level_load();
+			canopy_oracle::instance().on_level_load();
 		}
 
 		void on_level_unload()
@@ -333,6 +336,14 @@ namespace perception
 			PDBG_ONLY(shadow::on_level_unload());
 			occlusion_query::instance().on_level_unload();
 			atmosphere::instance().on_level_unload();
+			canopy_oracle::instance().on_level_unload();
+			foliage_oracle::instance().on_level_unload();
+		}
+
+		void on_frame()
+		{
+			foliage_oracle::instance().on_frame();
+			atmosphere::instance().on_frame();
 		}
 	}
 }
