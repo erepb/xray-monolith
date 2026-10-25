@@ -1,16 +1,11 @@
 #pragma once
 
-#include "dds_alpha.h"
-
 namespace perception
 {
-	// One triangle's atlas footprint. Kept per-face because a detail model's overall UV bbox is
-	// useless on a shared atlas: a model whose quads sit in opposite corners bounds most of the
-	// image, so a mean taken over it reads whatever else is packed nearby.
+	// One triangle of a detail model with its texture coordinates.
 	struct uv_face
 	{
-		uv_rect uv;
-		float area; // model-space triangle area, used to weight the per-face mean
+		float area; // model space
 		Fvector p[3]; // model space
 		float u[3], v[3];
 	};
@@ -20,11 +15,9 @@ namespace perception
 		shared_str shader;
 		shared_str texture;
 		Fbox bbox;
-		uv_rect uv; // union of all faces; coarse fallback when per-face weighting yields nothing
 		float min_scale, max_scale;
 		u32 verts;
 		u32 tris;
-		float area; // summed triangle area in model space
 		xr_vector<uv_face> faces;
 	};
 

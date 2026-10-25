@@ -1,4 +1,5 @@
 #include "stdafx.h"
+#include <algorithm>
 #include "canopy_data.h"
 #include "detail_data.h"
 #include "foliage_profile.h"
@@ -33,14 +34,31 @@ namespace perception
 		0   // UNUSED
 	};
 	static const u32 DECLTYPE_COUNT = sizeof(DECLTYPE_BYTES) / sizeof(DECLTYPE_BYTES[0]);
+	static const u32 DECLTYPE_FLOAT2 = 1;
 	static const u32 DECLTYPE_FLOAT3 = 2;
+	static const u32 DECLTYPE_SHORT2 = 6;
+	static const u32 DECLTYPE_SHORT4 = 7;
+	static const u8 DECLTYPE_UNUSED = 17;
 	static const u32 DECLUSAGE_POSITION = 0;
+	static const u32 DECLUSAGE_TEXCOORD = 5;
 	static const u16 DECL_STREAM_END = 0xFF;
 	static const u32 DECL_ELEMENT_BYTES = 8;
 
-	// A card alpha of 1.0 would give infinite optical depth; nothing in the atlas is truly opaque and
-	// a single card must never end a sight line on its own.
-	static const float ALPHA_CEILING = 0.995f;
+	// Tree texture coordinates stored as shorts are scaled by FTreeVisual_quant (FTreeVisual.h).
+	static const float TREE_TC_QUANT = 32768.f / 16.f;
+
+	// Positions that agree to this many metres are the same vertex for twin detection.
+	static const double TWIN_QUANT = 1e-4;
+
+	static IC Fvector2 read_uv(const u8* v, u8 type)
+	{
+		Fvector2 r;
+		if (DECLTYPE_FLOAT2 == type)
+			r = *(const Fvector2*)v;
+		else
+			r.set(float(*(const s16*)v) / TREE_TC_QUANT, float(*(const s16*)(v + 2)) / TREE_TC_QUANT);
+		return r;
+	}
 
 	static IC u32 remaining_of(IReader* r) { const int e = r->elapsed(); return e > 0 ? u32(e) : 0; }
 
@@ -60,14 +78,13 @@ namespace perception
 
 	static bool is_leaf_shader(LPCSTR s)
 	{
-		// Same rule foliage_oracle::scan_leafiness applies, and for the same reason: flora\trunk_wave
-		// is bark - opaque, and present on the very same tree visuals as the canopy.
+		// flora\trunk_wave is bark - opaque, and present on the very same tree visuals as the canopy.
 		return s && 0 == strncmp(s, "flora", 5) && !strstr(s, "trunk");
 	}
 
 	canopy_data::canopy_data()
-		: m_geom(0), m_triangles(0), m_non_tree_leaf(0), m_rejected(0), m_unresolved_swi(0),
-		  m_no_texture(0), m_skipped(0)
+		: m_geom(0), m_non_tree_leaf(0), m_rejected(0), m_unresolved_swi(0),
+		  m_no_texture(0), m_skipped(0), m_twins(0)
 	{
 	}
 
@@ -96,15 +113,16 @@ namespace perception
 		xr_vector<model_key>().swap(m_keys);
 		xr_vector<canopy_model>().swap(m_models);
 		xr_vector<canopy_instance>().swap(m_instances);
-		m_triangles = 0;
+		xr_vector<coverage_lod>().swap(m_coverage);
 		m_non_tree_leaf = 0;
 		m_rejected = 0;
 		m_unresolved_swi = 0;
 		m_no_texture = 0;
 		m_skipped = 0;
+		m_twins = 0;
 	}
 
-	bool canopy_data::load()
+	bool canopy_data::load(float finest_cell, float alpha_ref)
 	{
 		unload();
 
@@ -142,7 +160,7 @@ namespace perception
 			return false;
 
 		decode_models();
-		resolve_alpha();
+		resolve_coverage(finest_cell, alpha_ref);
 		return !m_instances.empty();
 	}
 
@@ -175,6 +193,8 @@ namespace perception
 				d.stride = 0;
 				d.count = 0;
 				d.pos_offset = 0;
+				d.tc_offset = 0;
+				d.tc_type = DECLTYPE_UNUSED;
 				d.usable = false;
 
 				// The declaration runs to an element whose stream is 0xFF, inclusive.
@@ -206,6 +226,12 @@ namespace perception
 					{
 						d.pos_offset = offset;
 						d.usable = true;
+					}
+					if (DECLUSAGE_TEXCOORD == usage && 0 == usage_index
+						&& (DECLTYPE_FLOAT2 == type || DECLTYPE_SHORT2 == type || DECLTYPE_SHORT4 == type))
+					{
+						d.tc_offset = offset;
+						d.tc_type = type;
 					}
 				}
 				if (!terminated || !stride || remaining_of(vb) < 4)
@@ -471,7 +497,8 @@ namespace perception
 		k.swi = swi;
 		k.shader_id = shader_id;
 
-		if (k.vb >= m_vb.size() || k.ib >= m_ib.size() || !m_vb[k.vb].usable)
+		if (k.vb >= m_vb.size() || k.ib >= m_ib.size() || !m_vb[k.vb].usable
+			|| DECLTYPE_UNUSED == m_vb[k.vb].tc_type)
 		{
 			++m_skipped;
 			return;
@@ -493,7 +520,7 @@ namespace perception
 			m_keys.push_back(k);
 			canopy_model cm;
 			cm.texture = (shader_id < m_texture.size()) ? m_texture[shader_id] : shared_str();
-			cm.ext = 0.f;
+			cm.coverage = u32(-1);
 			m_models.push_back(cm);
 		}
 
@@ -528,31 +555,117 @@ namespace perception
 
 			canopy_model& cm = m_models[m];
 			cm.verts.reserve(tris * 3);
+			cm.uvs.reserve(tris * 3);
 			for (u32 t = 0; t < tris * 3; ++t)
 			{
 				const u32 vi = u32(ib.data[i0 + t]) + k.vbase;
 				if (vi >= vb.count)
 				{
 					cm.verts.clear();
+					cm.uvs.clear();
 					Msg("! [perception] canopy: model %u index %u past VB %u - skipped", m, vi, k.vb);
 					++m_skipped;
 					break;
 				}
-				cm.verts.push_back(*(const Fvector*)(vb.data + u64(vi) * vb.stride + vb.pos_offset));
+				const u8* v = vb.data + u64(vi) * vb.stride;
+				cm.verts.push_back(*(const Fvector*)(v + vb.pos_offset));
+				cm.uvs.push_back(read_uv(v + vb.tc_offset, vb.tc_type));
 			}
-			m_triangles += u32(cm.verts.size() / 3);
+			drop_twins(cm);
 		}
 
 		release_geom();
 	}
 
-	void canopy_data::resolve_alpha()
+	void canopy_data::drop_twins(canopy_model& cm)
 	{
-		// Several models share a texture (200 models over ~40 textures on Escape), and reading a DDS
-		// is the expensive part of this bake, so each is read once.
-		xr_vector<shared_str> seen;
-		xr_vector<float> seen_ext;
+		struct twin_key
+		{
+			s64 q[9]; // the three positions, quantised and in sorted order
+			u32 tri;
+		};
 
+		const u32 n = u32(cm.verts.size() / 3);
+		xr_vector<twin_key> keys(n);
+		for (u32 t = 0; t < n; ++t)
+		{
+			s64 v[3][3];
+			for (u32 j = 0; j < 3; ++j)
+				for (u32 a = 0; a < 3; ++a)
+					v[j][a] = s64(floor(double((&cm.verts[t * 3 + j].x)[a]) / TWIN_QUANT + 0.5));
+			u32 o[3] = {0, 1, 2};
+			std::sort(o, o + 3, [&](u32 l, u32 r) {
+				return std::lexicographical_compare(v[l], v[l] + 3, v[r], v[r] + 3);
+			});
+			for (u32 j = 0; j < 3; ++j)
+				for (u32 a = 0; a < 3; ++a)
+					keys[t].q[j * 3 + a] = v[o[j]][a];
+			keys[t].tri = t;
+		}
+		std::sort(keys.begin(), keys.end(), [](const twin_key& l, const twin_key& r) {
+			for (u32 k = 0; k < 9; ++k)
+				if (l.q[k] != r.q[k])
+					return l.q[k] < r.q[k];
+			return l.tri < r.tri;
+		});
+
+		xr_vector<u8> drop(n, 0);
+		u32 dropped = 0;
+		for (u32 i = 1; i < n; ++i)
+			if (std::equal(keys[i].q, keys[i].q + 9, keys[i - 1].q))
+			{
+				drop[keys[i].tri] = 1;
+				++dropped;
+			}
+		if (!dropped)
+			return;
+
+		u32 w = 0;
+		for (u32 t = 0; t < n; ++t)
+		{
+			if (drop[t])
+				continue;
+			for (u32 j = 0; j < 3; ++j)
+			{
+				cm.verts[w * 3 + j] = cm.verts[t * 3 + j];
+				cm.uvs[w * 3 + j] = cm.uvs[t * 3 + j];
+			}
+			++w;
+		}
+		cm.verts.resize(w * 3);
+		cm.uvs.resize(w * 3);
+		m_twins += dropped;
+	}
+
+	static IC u32 pow2_at_least(float x)
+	{
+		u32 r = 1;
+		while (r < (1u << 16) && float(r) < x)
+			r <<= 1;
+		return r;
+	}
+
+	void canopy_data::resolve_coverage(float finest_cell, float alpha_ref)
+	{
+		// Mean scale of each model's placements, so a texel's size is known in world metres.
+		xr_vector<float> scale(m_models.size(), 0.f);
+		{
+			xr_vector<u32> n(m_models.size(), 0);
+			for (u32 i = 0; i < m_instances.size(); ++i)
+			{
+				const Fmatrix& x = m_instances[i].xform;
+				const float det = x._11 * (x._22 * x._33 - x._23 * x._32) - x._12 * (x._21 * x._33 - x._23 * x._31)
+					+ x._13 * (x._21 * x._32 - x._22 * x._31);
+				scale[m_instances[i].model] += powf(_abs(det), 1.f / 3.f);
+				++n[m_instances[i].model];
+			}
+			for (u32 m = 0; m < m_models.size(); ++m)
+				scale[m] = n[m] ? scale[m] / float(n[m]) : 0.f;
+		}
+
+		// Several models share a texture (145 over 35 on Escape), and reading a DDS is the expensive
+		// part of this bake, so each is built once, sized for every model that uses it.
+		xr_vector<float> sizes;
 		for (u32 m = 0; m < m_models.size(); ++m)
 		{
 			canopy_model& cm = m_models[m];
@@ -564,41 +677,75 @@ namespace perception
 				continue;
 			}
 
-			bool hit = false;
-			for (u32 i = 0; i < seen.size(); ++i)
-				if (seen[i] == cm.texture)
+			bool seen = false;
+			for (u32 p = 0; p < m; ++p)
+				if (m_models[p].texture == cm.texture && !m_models[p].verts.empty())
 				{
-					cm.ext = seen_ext[i];
-					hit = true;
+					cm.coverage = m_models[p].coverage;
+					seen = true;
 					break;
 				}
-			if (hit)
+			if (seen)
 				continue;
 
-			uv_rect whole;
-			whole.invalidate();
-			float a = 0.f;
-			// No minimum resolution, unlike the leafiness average in foliage_oracle: a retired frond
-			// card is a 2x2 fully transparent stub, and alpha 0 is that crown's correct extinction.
-			if (!texture_mean_alpha(cm.texture.c_str(), whole, a, 0, 0))
+			// Metres of placed card per UV unit, over every triangle of every model on this texture.
+			sizes.clear();
+			for (u32 p = m; p < m_models.size(); ++p)
+			{
+				const canopy_model& pm = m_models[p];
+				if (pm.texture != cm.texture || !scale[p])
+					continue;
+				for (u32 t = 0; t < pm.verts.size() / 3; ++t)
+				{
+					const Fvector* v = &pm.verts[t * 3];
+					const Fvector2* uv = &pm.uvs[t * 3];
+					Fvector e1, e2, c;
+					e1.sub(v[1], v[0]);
+					e2.sub(v[2], v[0]);
+					const float area = c.crossproduct(e1, e2).magnitude();
+					const float uv_area = _abs((uv[1].x - uv[0].x) * (uv[2].y - uv[0].y)
+					                           - (uv[1].y - uv[0].y) * (uv[2].x - uv[0].x));
+					if (area > 1e-8f && uv_area > 1e-12f)
+						sizes.push_back(_sqrt(area / uv_area) * scale[p]);
+				}
+			}
+
+			IReader* r = open_texture(cm.texture.c_str());
+			dds_info info;
+			const bool probed = r && dds_probe((const u8*)r->pointer(), u32(r->length()), info);
+
+			u32 res = 1;
+			if (probed)
+			{
+				float s90 = 0.f;
+				if (!sizes.empty())
+				{
+					const size_t k = sizes.size() * 9 / 10;
+					std::nth_element(sizes.begin(), sizes.begin() + k, sizes.end());
+					s90 = sizes[k];
+				}
+				res = pow2_at_least(s90 / _max(finest_cell, 1e-3f));
+				while (res > 1 && (res > info.width || res > info.height))
+					res >>= 1;
+			}
+
+			xr_vector<u8> base;
+			coverage_lod lod;
+			if (probed && dds_coverage_grid((const u8*)r->pointer(), u32(r->length()), res, alpha_ref, base))
+				lod.build(base, res);
+			if (r)
+				FS.r_close(r);
+
+			if (!lod.valid())
 			{
 				++m_rejected;
-				cm.ext = 0.f;
-			}
-			else
-			{
-				// A card transmits (1-alpha), so its optical depth is -ln(1-alpha). Using alpha itself
-				// would under-read the dense conifers: measured spruce and pine alpha is 0.406, where
-				// -ln(0.594) = 0.521.
-				clamp(a, 0.f, ALPHA_CEILING);
-				cm.ext = -logf(1.f - a);
+				continue;
 			}
 
-			seen.push_back(cm.texture);
-			seen_ext.push_back(cm.ext);
-
-			PDBG_LOG("~ [perception] canopy:   tex '%s' alpha=%.3f ext=%.3f", cm.texture.c_str(), a,
-			         cm.ext);
+			cm.coverage = u32(m_coverage.size());
+			m_coverage.push_back(lod);
+			PDBG_LOG("~ [perception] canopy:   tex '%s' %ux%u -> coverage %ux%u, mean %.3f", cm.texture.c_str(),
+			         info.width, info.height, res, res, lod.mean());
 		}
 	}
 }

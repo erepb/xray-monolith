@@ -8,7 +8,6 @@
 
 namespace perception
 {
-	static const u32 LEVEL_CHUNK_SHADERS = 2; // fsL_SHADERS, xrEngine/xrLevel.h
 	static const u32 MAX_FIELD_SLOTS = 8192 * 8192;
 
 	// Mean fraction of an upright face's area a horizontal ray sees, averaged over the instance's
@@ -23,16 +22,6 @@ namespace perception
 		return s_oracle;
 	}
 
-	float foliage_oracle::leafiness(veg_class c) const
-	{
-		return (c < veg_class_count) ? m_leafiness[c] : 1.f;
-	}
-
-	float foliage_oracle::gap_fraction(veg_class c) const
-	{
-		return (c < veg_class_count) ? m_gap[c] : 0.f;
-	}
-
 	void foliage_oracle::on_level_unload()
 	{
 		xr_vector<cell>().swap(m_field);
@@ -44,11 +33,6 @@ namespace perception
 		PDBG_ONLY(ZeroMemory(&m_stats, sizeof(m_stats)));
 		m_size_x = m_size_z = 0;
 		m_offs_x = m_offs_z = 0;
-		for (u32 i = 0; i < veg_class_count; ++i)
-		{
-			m_leafiness[i] = 1.f;
-			m_gap[i] = 0.f;
-		}
 		m_ready = false;
 	}
 
@@ -56,8 +40,6 @@ namespace perception
 	{
 		PDBG_SCOPE("foliage: total bake");
 		on_level_unload();
-
-		scan_leafiness();
 
 		detail_data dd;
 		{
@@ -85,7 +67,7 @@ namespace perception
 			const u32 n = u32(n64);
 			m_field.resize(n);
 
-			// The grid keeps one job now: bound the height band grass could occupy, so a ray that
+			// The grid bounds the height band grass could occupy, so a ray that
 			// passes well above or below a slot is rejected before anything is resolved. The band is
 			// the slot's terrain relief plus the highest top any of its models reaches at the largest
 			// scale placement draws, because grass grows on the surface and the surface itself spans
@@ -131,143 +113,6 @@ namespace perception
 		         dd.version(), m_size_x, m_size_z, m_offs_x, m_offs_z, u32(dd.models().size()),
 		         float(m_field.size() * sizeof(cell)) / (1024.f * 1024.f),
 		         m_renderer_places ? "yes" : "no");
-	}
-
-	void foliage_oracle::scan_leafiness()
-	{
-		PDBG_SCOPE("foliage: leafiness scan");
-
-		float sum[veg_class_count] = {0.f, 0.f};
-		float gap_sum[veg_class_count] = {0.f, 0.f};
-		u32 count[veg_class_count] = {0, 0};
-		u32 rejected[veg_class_count] = {0, 0};
-		xr_vector<shared_str> seen;
-
-		if (!FS.exist("$level$", "level"))
-		{
-			PDBG_LOG("~ [perception] foliage: level file absent - skipping leafiness scan");
-			return;
-		}
-
-		string_path fn;
-		FS.update_path(fn, "$level$", "level");
-		IReader* fs = FS.r_open(fn);
-		if (!fs)
-		{
-			Msg("! [perception] foliage: failed to open level file - skipping leafiness scan");
-			return;
-		}
-
-		IReader* chunk = open_chunk_checked(fs, LEVEL_CHUNK_SHADERS);
-		if (chunk)
-		{
-			if (chunk->elapsed() < 4)
-			{
-				Msg("! [perception] foliage: level shaders chunk too short - skipping leafiness scan");
-				chunk->close();
-				FS.r_close(fs);
-				return;
-			}
-			const u32 n = chunk->r_u32();
-			for (u32 i = 0; i < n && chunk->elapsed() > 0; ++i)
-			{
-				string512 entry;
-				if (!read_stringz(chunk, entry, sizeof(entry)))
-					break;
-				if (!entry[0])
-					continue;
-
-				// "<shader>/<texture>[,<lmap>...]"
-				LPSTR slash = strchr(entry, '/');
-				if (!slash)
-					continue;
-				*slash = 0;
-				LPSTR tex = slash + 1;
-				LPSTR comma = strchr(tex, ',');
-				if (comma)
-					*comma = 0;
-
-				if (0 != strncmp(entry, "flora", 5))
-					continue;
-
-				// flora\trunk_wave is bark: opaque, and untouched by the winter/bare-branch
-				// retextures this metric exists to detect
-				if (strstr(entry, "trunk"))
-					continue;
-
-				// a texture referenced by more than one flora shader (e.g. leaf/leaf_wave) must only
-				// contribute once, or the class mean gets weighted by shader multiplicity
-				const shared_str tex_name = tex;
-				bool dup = false;
-				for (u32 s = 0; s < seen.size(); ++s)
-					if (seen[s] == tex_name)
-					{
-						dup = true;
-						break;
-					}
-				if (dup)
-					continue;
-
-				const veg_class c = strstr(tex, "bush") ? veg_bush : veg_tree;
-
-				dds_info info;
-				uv_rect whole;
-				whole.invalidate();
-				float a = 0.f, g = 0.f;
-				if (!texture_mean_alpha(tex, whole, a, &info, &g))
-				{
-					++rejected[c];
-					continue;
-				}
-
-				// vanilla still references deprecated *_frond* entries whose textures are 2x2 stubs;
-				// an image this small carries no leaf-density information, so it must not vote
-				if (info.width < 8 || info.height < 8)
-				{
-					++rejected[c];
-					continue;
-				}
-
-				seen.push_back(tex_name);
-
-				sum[c] += a;
-				gap_sum[c] += g;
-				count[c] += 1;
-
-				PDBG_LOG("~ [perception] foliage:   flora tex '%s' shader '%s' class %s alpha=%.3f gap=%.3f",
-				         tex, entry, (veg_bush == c) ? "bush" : "tree", a, g);
-			}
-			chunk->close();
-		}
-		else
-		{
-			Msg("! [perception] foliage: level shaders chunk missing or invalid - skipping leafiness scan");
-		}
-		FS.r_close(fs);
-
-		for (u32 i = 0; i < veg_class_count; ++i)
-		{
-			if (count[i])
-			{
-				m_leafiness[i] = sum[i] / float(count[i]);
-				m_gap[i] = gap_sum[i] / float(count[i]);
-			}
-			else if (rejected[i])
-			{
-				// every flora texture for this class was unusable (degenerate stubs or unreadable):
-				// the vegetation renders as nothing, so it must not inherit the full-concealment
-				// default that "no vegetation on this level" relies on
-				m_leafiness[i] = 0.f;
-				// bare, not merely sparse: nothing is left to be unevenly distributed
-				m_gap[i] = 1.f;
-				Msg("! [perception] foliage: all %d %s textures unusable - treating class as bare",
-				    rejected[i], (veg_bush == veg_class(i)) ? "bush" : "tree");
-			}
-		}
-
-		PDBG_LOG("~ [perception] foliage: leafiness bush=%.3f gap=%.3f (%d tex, %d rejected) tree=%.3f gap=%.3f (%d tex, %d rejected)",
-		         m_leafiness[veg_bush], m_gap[veg_bush], count[veg_bush], rejected[veg_bush],
-		         m_leafiness[veg_tree], m_gap[veg_tree], count[veg_tree], rejected[veg_tree]);
 	}
 
 	bool foliage_oracle::band_at(float x, float z, float& y_lo, float& y_hi) const

@@ -7490,6 +7490,9 @@
     <ClCompile Include="perception\canopy_oracle.cpp">
       <Filter>Perception</Filter>
     </ClCompile>
+    <ClCompile Include="perception\coverage_lod.cpp">
+      <Filter>Perception</Filter>
+    </ClCompile>
     <ClCompile Include="perception\slot_walk.cpp">
       <Filter>Perception</Filter>
     </ClCompile>
@@ -7512,6 +7515,9 @@
       <Filter>Perception</Filter>
     </ClInclude>
     <ClInclude Include="perception\canopy_oracle.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
+    <ClInclude Include="perception\coverage_lod.h">
       <Filter>Perception</Filter>
     </ClInclude>
     <ClInclude Include="perception\slot_walk.h">

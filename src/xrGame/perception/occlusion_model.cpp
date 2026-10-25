@@ -11,6 +11,8 @@ namespace perception
 		ray_extend = 0.20f;
 		foliage_k = 1.00f;
 		canopy_k = 1.00f;
+		canopy_cone_eye = 0.05f;
+		canopy_cone_target = 0.30f;
 		atmosphere_k = 1.00f;
 		max_slab_h = 4.00f;
 		resolve_budget = 64;
@@ -35,6 +37,10 @@ namespace perception
 			if (ltx->line_exist(CFG_SECTION, "ray_extend")) ray_extend = ltx->r_float(CFG_SECTION, "ray_extend");
 			if (ltx->line_exist(CFG_SECTION, "foliage_k")) foliage_k = ltx->r_float(CFG_SECTION, "foliage_k");
 			if (ltx->line_exist(CFG_SECTION, "canopy_k")) canopy_k = ltx->r_float(CFG_SECTION, "canopy_k");
+			if (ltx->line_exist(CFG_SECTION, "canopy_cone_eye"))
+				canopy_cone_eye = ltx->r_float(CFG_SECTION, "canopy_cone_eye");
+			if (ltx->line_exist(CFG_SECTION, "canopy_cone_target"))
+				canopy_cone_target = ltx->r_float(CFG_SECTION, "canopy_cone_target");
 			if (ltx->line_exist(CFG_SECTION, "atmosphere_k")) atmosphere_k = ltx->r_float(CFG_SECTION, "atmosphere_k");
 			if (ltx->line_exist(CFG_SECTION, "max_slab_h")) max_slab_h = ltx->r_float(CFG_SECTION, "max_slab_h");
 			if (ltx->line_exist(CFG_SECTION, "resolve_budget")) resolve_budget = ltx->r_u32(CFG_SECTION, "resolve_budget");
@@ -47,6 +53,8 @@ namespace perception
 		clamp(ray_extend, 0.f, 5.f);
 		clamp(foliage_k, 0.f, 100.f);
 		clamp(canopy_k, 0.f, 100.f);
+		clamp(canopy_cone_eye, 0.01f, 1.f);
+		clamp(canopy_cone_target, 0.01f, 2.f);
 		clamp(atmosphere_k, 0.f, 100.f);
 		clamp(max_slab_h, 0.f, 64.f);
 		// A zero budget would turn every grass slot permanently opaque; a cache smaller than the slots
@@ -59,6 +67,8 @@ namespace perception
 		    foliage_k, canopy_k, atmosphere_k, ray_extend, max_slab_h, alpha_ref);
 		Msg("~ [perception]   grass resolve budget %u slot(s)/frame, cache %u slot(s)", resolve_budget,
 		    resolve_cache_slots);
+		Msg("~ [perception]   canopy sight line %.2f m at the eye, %.2f m at the target", canopy_cone_eye,
+		    canopy_cone_target);
 	}
 
 	float occlusion_model::foliage_transmittance(float tau) const
@@ -74,10 +84,7 @@ namespace perception
 
 	float occlusion_model::canopy_transmittance(float tau) const
 	{
-		if (tau <= 0.f)
-			return 1.f;
-
-		return expf(-canopy_k * tau);
+		return tau > 0.f ? expf(-canopy_k * tau) : 1.f;
 	}
 
 	float occlusion_model::atmosphere_transmittance(float t) const

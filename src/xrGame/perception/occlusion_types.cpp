@@ -59,7 +59,7 @@ namespace perception
 		dominant_material = 0;
 		foliage_tau = 0.f;
 		canopy_tau = 0.f;
-		canopy_cells = 0;
+		canopy_crowns = 0;
 		deferred_hits = 0;
 		deferred_t = 1.f;
 		fallback_hits = 0;

@@ -375,7 +375,11 @@ namespace perception
 			for (u32 i = 0; i < chords.size() && i < RAY_LOG_ITEMS; ++i)
 			{
 				const veg_chord& c = chords[i];
-				if (c.radius > 0.f && c.y_hi > c.y_lo)
+				if (u32(-1) != c.crown)
+					Msg("~     %s %6.2f..%6.2f m  y %7.2f..%7.2f  crown %u model %u  hits %u  tau %.3f%s", label,
+					    along(seg, c.enter), along(seg, c.exit), c.enter.y, c.exit.y, c.crown, u32(c.model),
+					    u32(c.hits), c.tau, c.inside ? "  (eye inside)" : "");
+				else if (c.radius > 0.f && c.y_hi > c.y_lo)
 				{
 					// Closest approach of the ray's horizontal line to the tuft's axis.
 					const float dx = c.origin.x - seg.from.x, dz = c.origin.z - seg.from.z;
@@ -411,9 +415,9 @@ namespace perception
 			    debug::describe_degraded(r.degraded, deg));
 
 			const occlusion_query& q = occlusion_query::instance();
-			Msg("~   grass tau %.3f  %u tuft(s)  %u slot(s) unresolved  |  canopy tau %.3f  %u cell(s)",
+			Msg("~   grass tau %.3f  %u tuft(s)  %u slot(s) unresolved  |  canopy tau %.3f  %u crown(s) hit",
 			    r.foliage_tau, u32(q.last_chords.size()), u32(r.foliage_unresolved), r.canopy_tau,
-			    u32(r.canopy_cells));
+			    u32(r.canopy_crowns));
 			log_chords("tuft", seg, q.last_chords);
 			log_chords("leaf", seg, q.last_canopy);
 			for (u32 i = 0; i < q.last_hits.size() && i < RAY_LOG_ITEMS; ++i)

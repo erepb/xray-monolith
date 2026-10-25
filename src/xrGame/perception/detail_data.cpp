@@ -229,8 +229,6 @@ namespace perception
 			d.tris = n_idx / 3;
 
 			d.bbox.invalidate();
-			d.uv.invalidate();
-			d.area = 0.f;
 
 			if (d.verts > remaining(m) / 20)
 			{
@@ -246,7 +244,6 @@ namespace perception
 				Fvector pos;
 				pos.set(*(const float*)(p + 0), *(const float*)(p + 4), *(const float*)(p + 8));
 				d.bbox.modify(pos);
-				d.uv.modify(*(const float*)(p + 12), *(const float*)(p + 16));
 			}
 			m->advance(v_bytes);
 
@@ -271,10 +268,6 @@ namespace perception
 
 					uv_face f;
 					f.area = 0.5f * cr.magnitude();
-					f.uv.invalidate();
-					f.uv.modify(*(const float*)(p0 + 12), *(const float*)(p0 + 16));
-					f.uv.modify(*(const float*)(p1 + 12), *(const float*)(p1 + 16));
-					f.uv.modify(*(const float*)(p2 + 12), *(const float*)(p2 + 16));
 					f.p[0] = a;
 					f.p[1] = b;
 					f.p[2] = c;
@@ -288,8 +281,6 @@ namespace perception
 					if (!_valid(f.area))
 						continue;
 					d.faces.push_back(f);
-
-					d.area += f.area;
 				}
 			}
 			else

@@ -68,6 +68,7 @@ namespace perception
 		foliage_oracle::instance().set_max_slab_h(m_model.max_slab_h);
 		foliage_oracle::instance().set_resolve_limits(m_model.resolve_budget, m_model.resolve_cache_slots);
 		foliage_oracle::instance().set_alpha_ref(m_model.alpha_ref);
+		canopy_oracle::instance().set_bake_params(m_model.canopy_cone_eye, m_model.alpha_ref);
 		m_ready = true;
 	}
 
@@ -79,6 +80,7 @@ namespace perception
 #ifdef PERCEPTION_DEBUG
 		last_chords.clear();
 		last_canopy.clear();
+		last_canopy_hits.clear();
 		last_hits.clear();
 		record = false;
 		reset_validation();
@@ -266,28 +268,38 @@ namespace perception
 			out.channel[occ_foliage] = m_model.foliage_transmittance(fm.tau);
 		}
 
-		// Canopy is not cached and has no budget: the whole field is resident, so the march is a grid
-		// walk with nothing to resolve and nothing to defer.
+		// Canopy is not cached and has no budget: every crown is resident, so the march is a column walk
+		// with nothing to resolve and nothing to defer.
 		{
 			canopy_oracle::march_result cm;
 			cm.tau = 0.f;
-			cm.cells = 0;
+			cm.crowns = 0;
+
+			// The near plane follows the renderer's: a card the player's camera would clip is not drawn.
+			canopy_oracle::sight_cone cone;
+			cone.eye = m_model.canopy_cone_eye;
+			cone.target = m_model.canopy_cone_target;
+			cone.near_plane = VIEWPORT_NEAR;
 #ifdef PERCEPTION_DEBUG
 			if (record)
+			{
 				last_canopy.clear();
-			canopy_oracle::instance().march(seg.from, seg.to, cm, record ? &last_canopy : 0);
+				last_canopy_hits.clear();
+			}
+			canopy_oracle::instance().march(seg.from, seg.to, cone, cm, record ? &last_canopy : 0,
+			                                record ? &last_canopy_hits : 0);
 #else
-			canopy_oracle::instance().march(seg.from, seg.to, cm, 0);
+			canopy_oracle::instance().march(seg.from, seg.to, cone, cm);
 #endif
 			out.canopy_tau = cm.tau;
-			out.canopy_cells = cm.cells;
+			out.canopy_crowns = cm.crowns;
 
 			// Incomplete means crowns may be missing anywhere, so every trace is flagged, not only
 			// those that crossed a cell.
 			const canopy_oracle& co = canopy_oracle::instance();
 			if (co.ready() && !co.complete())
 				out.degraded |= deg_canopy_incomplete;
-			if (cm.cells && co.overcounted())
+			if (cm.crowns && co.overcounted())
 				out.degraded |= deg_canopy_overcount;
 			out.channel[occ_canopy] = m_model.canopy_transmittance(cm.tau);
 		}

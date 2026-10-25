@@ -8,7 +8,7 @@ namespace perception
 	// Distance-driven visibility, so NPCs inherit the limit fog already imposes on the player.
 	//
 	// Holds a private copy of the curve the renderer measured. The AI path never touches IRender
-	// after that one fetch - same discipline as the Stage 1 foliage bake.
+	// after that one fetch.
 	class atmosphere
 	{
 	public:
@@ -23,7 +23,6 @@ namespace perception
 		// The renderer probes, but the probe produced no curve. A renderer that does not probe at all
 		// is not this case.
 		bool unmeasured() const { return m_unmeasured; }
-		const atmo_lut& lut() const { return m_lut; }
 
 		// Transmittance over a path of `length` metres whose relevant height is `height`, under the
 		// current weather. Weather enters only here, and only through CEnvDescriptor - never the

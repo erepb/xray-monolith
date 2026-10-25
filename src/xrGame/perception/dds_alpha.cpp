@@ -10,17 +10,6 @@ namespace perception
 	static const u32 FOURCC_DXT3 = 0x33545844;
 	static const u32 FOURCC_DXT5 = 0x35545844;
 
-	// grid resolution per axis when probing a rect; 32x32 puts the sampling error near 1.5%, well
-	// under the u8 quantisation the density field applies afterwards
-	static const u32 SAMPLES_PER_AXIS = 32;
-
-	static const u32 GAP_BLOCKS_PER_AXIS = 8;   // 8x8 contiguous blocks over the rect
-	static const u32 GAP_SAMPLES_PER_AXIS = 4;  // 4x4 lattice inside each block -> 1024 total
-	static const float GAP_COVERAGE = 0.1f;     // a block this empty is a hole a sample can pass
-
-	static_assert(GAP_BLOCKS_PER_AXIS * GAP_SAMPLES_PER_AXIS == SAMPLES_PER_AXIS,
-	              "gap block/lattice split must keep the same per-axis sample budget");
-
 	static IC u32 rd32(const u8* p, u32 off) { return *(const u32*)(p + off); }
 
 	static IC u32 block_bytes(u32 fourcc)
@@ -164,112 +153,90 @@ namespace perception
 
 	// --------------------------------------------------------------------------
 
-	bool dds_mean_alpha(const u8* data, u32 size, const uv_rect& uv, float& out_alpha, u32 min_res,
-	                    float* out_gap)
+	static const u32 CELL_BLOCKS_MAX = 8;  // blocks per cell axis read in full; past this, a subset
+	static const u32 CELL_BLOCKS_READ = 4; // blocks per cell axis in that subset
+	static const u32 CELL_TEXELS_MAX = 8;  // texel lattice per cell axis where blocks cannot be counted
+
+	static IC u32 popcount32(u32 x)
+	{
+		x = x - ((x >> 1) & 0x55555555u);
+		x = (x & 0x33333333u) + ((x >> 2) & 0x33333333u);
+		return (((x + (x >> 4)) & 0x0f0f0f0fu) * 0x01010101u) >> 24;
+	}
+
+	// Texels of a DXT1 block that are drawn: all 16 in opaque mode, otherwise those whose index is not 3.
+	static IC u32 dxt1_drawn(const u8* blk)
+	{
+		const u16 c0 = *(const u16*)(blk + 0);
+		const u16 c1 = *(const u16*)(blk + 2);
+		if (c0 > c1)
+			return 16;
+		const u32 bits = rd32(blk, 4);
+		return 16 - popcount32(bits & (bits >> 1) & 0x55555555u);
+	}
+
+	bool dds_coverage_grid(const u8* data, u32 size, u32 res, float alpha_ref, xr_vector<u8>& out)
 	{
 		dds_info i;
 		if (!dds_probe(data, size, i))
 			return false;
-
-		// DXT1 carries one bit of alpha per texel behind a per-block mode flag, so whoever generated
-		// the mips had to threshold rather than average - and the vanilla atlases disagree about which
-		// way to round. Measured on the 64x64 mip against mip 0: l07_military reads 0.099 vs 0.171 and
-		// decays to zero, k00_marsh reads 0.845 vs 0.193 and saturates to one. Only mip 0 means
-		// anything for this format. Formats with 8-bit alpha box-filter linearly, so their mips keep
-		// the mean and stay cheap to read.
-		if (FOURCC_DXT1 == i.fourcc)
-			min_res = i.width;
-
-		// walk down the mip chain while the next level is still wide enough
-		u32 w = i.width, h = i.height, off = HDR_SIZE;
-		for (u32 m = 1; m < i.mips; ++m)
-		{
-			const u32 nw = _max(1u, w / 2), nh = _max(1u, h / 2);
-			if (nw < min_res)
-				break;
-			const u64 sz = level_bytes(i, w, h);
-			if (u64(off) + sz + level_bytes(i, nw, nh) > u64(size))
-				break;
-			off += u32(sz);
-			w = nw;
-			h = nh;
-		}
-		if (u64(off) + level_bytes(i, w, h) > u64(size))
+		if (!res || (res & (res - 1)) || res > i.width || res > i.height)
+			return false;
+		if (u64(HDR_SIZE) + level_bytes(i, i.width, i.height) > u64(size))
 			return false;
 
-		const u8* lvl = data + off;
+		const u8* lvl = data + HDR_SIZE;
+		const u32 w = i.width, h = i.height;
+		out.assign(size_t(res) * res, 0);
 
-		u32 x0 = 0, x1 = w, y0 = 0, y1 = h;
-		if (uv.valid())
+		if (FOURCC_DXT1 == i.fourcc && 0 == w % (4 * res) && 0 == h % (4 * res))
 		{
-			// wrap into [0,1); each axis is restricted independently so a rect that wraps in one
-			// axis doesn't fall back to a whole-image probe on the other
-			const float du = uv.u1 - uv.u0, dv = uv.v1 - uv.v0;
-			if (du < 1.f)
-			{
-				const float fu = uv.u0 - floorf(uv.u0);
-				x0 = u32(fu * w);
-				x1 = x0 + _max(1u, u32(du * w + 0.5f));
-			}
-			if (dv < 1.f)
-			{
-				const float fv = uv.v0 - floorf(uv.v0);
-				y0 = u32(fv * h);
-				y1 = y0 + _max(1u, u32(dv * h + 0.5f));
-			}
+			const u32 row = w / 4;
+			const u32 nbx = w / res / 4, nby = h / res / 4;
+			const u32 sx = nbx > CELL_BLOCKS_MAX ? nbx / CELL_BLOCKS_READ : 1;
+			const u32 sy = nby > CELL_BLOCKS_MAX ? nby / CELL_BLOCKS_READ : 1;
+			for (u32 cy = 0; cy < res; ++cy)
+				for (u32 cx = 0; cx < res; ++cx)
+				{
+					u32 drawn = 0, n = 0;
+					for (u32 by = 0; by < nby; by += sy)
+					{
+						const u8* blk = lvl + (size_t(cy * nby + by) * row + cx * nbx) * 8;
+						for (u32 bx = 0; bx < nbx; bx += sx)
+						{
+							drawn += dxt1_drawn(blk + bx * 8);
+							n += 16;
+						}
+					}
+					out[cy * res + cx] = u8((drawn * 255 + n / 2) / n);
+				}
+			return true;
 		}
 
-		// Sampling mip 0 means the rect can be millions of texels, so step across it instead of
-		// reading it whole: a regular grid is an unbiased estimator of coverage and bounds a
-		// whole-atlas probe and a single-quad probe to the same cost. Small rects are read densely.
-		//
-		// The grid is grouped into GAP_BLOCKS_PER_AXIS^2 contiguous neighbourhoods (each holding a
-		// GAP_SAMPLES_PER_AXIS^2 lattice) rather than spread evenly, because a uniformly-strided grid
-		// cannot resolve structure smaller than its stride - gap fraction needs per-block coverage.
-		// Total sample count and cost are unchanged from a flat SAMPLES_PER_AXIS^2 grid.
-		const u32 rw = x1 - x0, rh = y1 - y0;
-		const u32 nbx = _min(GAP_BLOCKS_PER_AXIS, rw);
-		const u32 nby = _min(GAP_BLOCKS_PER_AXIS, rh);
-
-		u32 total = 0, count = 0, gap_blocks = 0;
-		for (u32 by = 0; by < nby; ++by)
+		const u32 ref = u32(alpha_ref * 255.f + .5f);
+		for (u32 cy = 0; cy < res; ++cy)
 		{
-			const u32 by0 = y0 + (by * rh) / nby;
-			const u32 by1 = y0 + ((by + 1) * rh) / nby;
-			const u32 nsy = _min(GAP_SAMPLES_PER_AXIS, by1 - by0);
-			const u32 syb = _max(1u, (by1 - by0) / nsy);
-
-			for (u32 bx = 0; bx < nbx; ++bx)
+			const u32 y0 = cy * h / res, y1 = (cy + 1) * h / res;
+			const u32 ny = _min(CELL_TEXELS_MAX, y1 - y0);
+			for (u32 cx = 0; cx < res; ++cx)
 			{
-				const u32 bx0 = x0 + (bx * rw) / nbx;
-				const u32 bx1 = x0 + ((bx + 1) * rw) / nbx;
-				const u32 nsx = _min(GAP_SAMPLES_PER_AXIS, bx1 - bx0);
-				const u32 sxb = _max(1u, (bx1 - bx0) / nsx);
-
-				u32 b_total = 0, b_count = 0;
-				for (u32 y = by0; y < by1; y += syb)
+				const u32 x0 = cx * w / res, x1 = (cx + 1) * w / res;
+				const u32 nx = _min(CELL_TEXELS_MAX, x1 - x0);
+				u32 drawn = 0;
+				for (u32 sy = 0; sy < ny; ++sy)
 				{
-					const u32 yy = y % h;
-					for (u32 x = bx0; x < bx1; x += sxb)
+					const u32 y = y0 + ((2 * sy + 1) * (y1 - y0)) / (2 * ny);
+					for (u32 sx = 0; sx < nx; ++sx)
 					{
-						b_total += texel_alpha(i, lvl, w, x % w, yy);
-						++b_count;
+						const u32 x = x0 + ((2 * sx + 1) * (x1 - x0)) / (2 * nx);
+						if (texel_alpha(i, lvl, w, x, y) >= ref)
+							++drawn;
 					}
 				}
-
-				total += b_total;
-				count += b_count;
-				if (b_count && float(b_total) < GAP_COVERAGE * 255.f * float(b_count))
-					++gap_blocks;
+				const u32 n = nx * ny;
+				out[cy * res + cx] = u8((drawn * 255 + n / 2) / n);
 			}
 		}
-
-		if (!count)
-			return false;
-
-		out_alpha = float(total) / float(count) / 255.f;
-		if (out_gap)
-			*out_gap = float(gap_blocks) / float(nbx * nby);
 		return true;
 	}
 }

@@ -7,116 +7,84 @@
 
 namespace perception
 {
-	static const float CELL_VOLUME = SLOT_SIZE * SLOT_SIZE * SLOT_SIZE;
-
-	// Columns per axis. 12 bits each in the bake key, and well past the 377x736 Escape needs.
+	// Columns per axis of the crown index.
 	static const u32 MAX_COLUMNS_PER_AXIS = 4096;
 
-	// Row stride of the bake key (column * MAX_ROWS + row); the row index is 8 bits in both the key and
-	// the stored run. Only MAX_ROWS - 1 rows are usable: at the corner of a maximal 4096 x 4096 field
-	// row 255 would make the key 0xFFFFFFFF, which is bake_map::EMPTY, and that cell would be lost
-	// silently. 255 rows is 510 m of canopy against the 127 m Escape spans.
-	static const u32 MAX_ROWS = 256;
-
-	// Largest world coordinate the extent is allowed to start from. Well inside what iFloor can
-	// convert, so the slot-index arithmetic below cannot overflow int.
+	// Largest world coordinate a crown box may reach. Well inside what iFloor can convert, so the
+	// column arithmetic below cannot overflow int.
 	static const float MAX_WORLD_COORD = 1.0e6f;
 
-	// A cell holding less than this contributes under 1e-3 nepers per metre of travel and is not
-	// worth a run. Keeps slivers clipped by a cell boundary out of the field.
-	static const float MIN_CELL_EXT = 1e-3f;
+	static const u32 BVH_LEAF = 4;
 
-	namespace
+	// A median split halves the triangle count at every level, so depth stays under 33 and the stack
+	// never holds more than depth + 1 entries.
+	static const u32 BVH_STACK = 64;
+
+	// Crown boxes are grown by this before indexing and clipping, so a ray entering a box exactly on a
+	// column boundary still finds the crown listed in the column it is walking.
+	static const float BOX_PAD = 0.01f;
+
+	// A footprint fully covered by leaves blocks completely while its optical depth stays finite.
+	static const float COVERAGE_MAX = 0.999f;
+
+	// log2 from the exponent and a linear mantissa: within 0.09 of a level, and no log call per hit.
+	static IC float fast_log2(float x)
 	{
-		// Open-addressed accumulator for the bake. A red-black tree would cost 3.37 M node inserts and
-		// a (key, value) array would cost 67 MB; this holds the ~223 k distinct cells in single-digit
-		// megabytes with O(1) inserts.
-		class bake_map
+		u32 b;
+		CopyMemory(&b, &x, 4);
+		const float e = float(int((b >> 23) & 0xff) - 127);
+		b = (b & 0x007fffffu) | 0x3f800000u;
+		float m;
+		CopyMemory(&m, &b, 4);
+		return e + (m - 1.f);
+	}
+
+	static IC float slab_inv(float d)
+	{
+		return _abs(d) > 1e-12f ? 1.f / d : (d >= 0.f ? 1e30f : -1e30f);
+	}
+
+	// Clips [t0, t1] of o + d * t to the box; inv is 1 / d per axis.
+	static IC bool clip_box(const Fvector& o, const Fvector& inv, const Fvector& bmin, const Fvector& bmax,
+	                        float& t0, float& t1)
+	{
+		for (u32 k = 0; k < 3; ++k)
 		{
-		public:
-			static const u32 EMPTY = 0xFFFFFFFF;
+			float ta = ((&bmin.x)[k] - (&o.x)[k]) * (&inv.x)[k];
+			float tb = ((&bmax.x)[k] - (&o.x)[k]) * (&inv.x)[k];
+			if (ta > tb)
+				std::swap(ta, tb);
+			t0 = _max(t0, ta);
+			t1 = _min(t1, tb);
+			if (t0 > t1)
+				return false;
+		}
+		return true;
+	}
 
-			bake_map() : m_mask(0), m_used(0), m_shift(32) {}
-
-			void init(u32 slots)
-			{
-				u32 n = 1024;
-				while (n < slots)
-					n <<= 1;
-				m_key.assign(n, EMPTY);
-				m_val.assign(n, 0.f);
-				m_mask = n - 1;
-				m_used = 0;
-				m_shift = 32;
-				for (u32 s = n; s > 1; s >>= 1)
-					--m_shift;
-			}
-
-			void add(u32 k, float v)
-			{
-				// The mask is belt-and-braces: the shifted hash is already below the slot count.
-				u32 i = hash(k) & m_mask;
-				while (EMPTY != m_key[i] && m_key[i] != k)
-					i = (i + 1) & m_mask;
-				if (EMPTY == m_key[i])
-				{
-					m_key[i] = k;
-					++m_used;
-					if (m_used * 10 > (m_mask + 1) * 7)
-					{
-						m_val[i] = v;
-						grow();
-						return;
-					}
-				}
-				m_val[i] += v;
-			}
-
-			u32 used() const { return m_used; }
-			u32 slots() const { return m_mask + 1; }
-			u32 key_at(u32 i) const { return m_key[i]; }
-			float val_at(u32 i) const { return m_val[i]; }
-
-		private:
-			IC u32 hash(u32 k) const
-			{
-				// Fibonacci mix. Multiplicative hashing needs the HIGH bits: a product's low bits depend
-				// only on the key's low bits, so keys sharing (column mod 2^11, row) would all land on
-				// one home slot. The top bits of the 32-bit product depend on every bit of the key.
-				return (k * 2654435761u) >> m_shift;
-			}
-
-			void grow()
-			{
-				xr_vector<u32> ok;
-				xr_vector<float> ov;
-				ok.swap(m_key);
-				ov.swap(m_val);
-				const u32 n = u32(ok.size()) << 1;
-				m_key.assign(n, EMPTY);
-				m_val.assign(n, 0.f);
-				m_mask = n - 1;
-				m_used = 0;
-				--m_shift;
-				for (u32 i = 0; i < ok.size(); ++i)
-					if (EMPTY != ok[i])
-						add(ok[i], ov[i]);
-			}
-
-			xr_vector<u32> m_key;
-			xr_vector<float> m_val;
-			u32 m_mask;
-			u32 m_used;
-			u32 m_shift; // 32 - log2(slots)
-		};
-
-		struct cell_entry
-		{
-			u32 key;
-			float ext;
-		};
-
-		static bool cell_less(const cell_entry& a, const cell_entry& b) { return a.key < b.key; }
+	// Two-sided: cards are seen from both faces, and an instance matrix may mirror. On a hit, t is the
+	// distance along d and (u, w) the barycentrics of v[1] and v[2].
+	static IC bool pierces(const Fvector& o, const Fvector& d, const Fvector* v, float t0, float t1,
+	                       float& t, float& u, float& w)
+	{
+		Fvector e1, e2, p, tv, q;
+		e1.sub(v[1], v[0]);
+		e2.sub(v[2], v[0]);
+		p.crossproduct(d, e2);
+		const float det = e1.dotproduct(p);
+		if (_abs(det) < 1e-12f)
+			return false;
+		const float inv = 1.f / det;
+		tv.sub(o, v[0]);
+		u = tv.dotproduct(p) * inv;
+		if (u < 0.f || u > 1.f)
+			return false;
+		q.crossproduct(tv, e1);
+		w = d.dotproduct(q) * inv;
+		if (w < 0.f || u + w > 1.f)
+			return false;
+		t = e2.dotproduct(q) * inv;
+		return t > t0 && t < t1;
 	}
 
 	canopy_oracle& canopy_oracle::instance()
@@ -127,16 +95,22 @@ namespace perception
 
 	void canopy_oracle::on_level_unload()
 	{
+		xr_vector<Fvector>().swap(m_tris);
+		xr_vector<Fvector2>().swap(m_uvs);
+		xr_vector<float>().swap(m_tri_lod);
+		xr_vector<coverage_lod>().swap(m_coverage);
+		xr_vector<bvh_node>().swap(m_nodes);
+		xr_vector<crown_model>().swap(m_models);
+		xr_vector<crown>().swap(m_crowns);
 		xr_vector<u32>().swap(m_col);
-		xr_vector<run>().swap(m_runs);
+		xr_vector<u32>().swap(m_ids);
 		m_min_sx = m_min_sz = 0;
 		m_size_x = m_size_z = 0;
-		m_rows = 0;
-		m_base_y = 0.f;
-		m_g = 0.f;
+		m_y_lo = m_y_hi = 0.f;
 		m_ready = false;
 		m_complete = false;
 		m_overcounted = false;
+		m_march_id = 0;
 		PDBG_ONLY(ZeroMemory(&m_stats, sizeof(m_stats)));
 	}
 
@@ -152,25 +126,99 @@ namespace perception
 		if (!ok)
 		{
 			on_level_unload();
-			Msg("~ [perception] canopy: no field - trees will not occlude");
+			Msg("~ [perception] canopy: no crowns - trees will not occlude");
 			return;
 		}
 
 		m_ready = true;
 
-		PDBG_LOG("~ [perception] canopy: %ux%u columns offs (%d,%d) rows %u base %.1f  G %.3f  %.2f MB  bake %.1f ms  %s",
-		         m_size_x, m_size_z, m_min_sx, m_min_sz, m_rows, m_base_y, m_g,
-		         float(m_col.size() * sizeof(u32) + m_runs.size() * sizeof(run)) / (1024.f * 1024.f),
-		         t.GetElapsed_sec() * 1000.f, m_complete ? "complete" : "INCOMPLETE");
+#ifdef PERCEPTION_DEBUG
+		size_t coverage = 0;
+		m_stats.res_min = u32(-1);
+		m_stats.res_max = 0;
+		for (u32 i = 0; i < m_coverage.size(); ++i)
+		{
+			coverage += m_coverage[i].bytes();
+			m_stats.res_min = _min(m_stats.res_min, m_coverage[i].res());
+			m_stats.res_max = _max(m_stats.res_max, m_coverage[i].res());
+		}
+		m_stats.textures = u32(m_coverage.size());
+		m_stats.coverage_mb = float(coverage) / (1024.f * 1024.f);
+		m_stats.memory_mb = float(m_tris.size() * sizeof(Fvector) + m_uvs.size() * sizeof(Fvector2)
+		                          + m_tri_lod.size() * sizeof(float) + coverage + m_nodes.size() * sizeof(bvh_node)
+		                          + m_models.size() * sizeof(crown_model) + m_crowns.size() * sizeof(crown)
+		                          + (m_col.size() + m_ids.size()) * sizeof(u32)) / (1024.f * 1024.f);
+		Msg("~ [perception] canopy: %u crown(s) over %u model(s), %u triangle(s) (%u twin(s) dropped), %u BVH node(s), %ux%u columns offs (%d,%d), %u index entries  %.2f MB  bake %.1f ms  %s",
+		    u32(m_crowns.size()), u32(m_models.size()), u32(m_tris.size() / 3), m_stats.twins, u32(m_nodes.size()),
+		    m_size_x, m_size_z, m_min_sx, m_min_sz, u32(m_ids.size()), m_stats.memory_mb, m_stats.bake_ms,
+		    m_complete ? "complete" : "INCOMPLETE");
+		Msg("~ [perception] canopy: %u coverage pyramid(s), base %u..%u, %.2f MB, finest cell %.3f m; geometry and textures read in %.1f ms",
+		    m_stats.textures, m_stats.textures ? m_stats.res_min : 0, m_stats.res_max, m_stats.coverage_mb,
+		    m_finest_cell, m_stats.data_ms);
+#endif
+	}
+
+	u32 canopy_oracle::build_node(const canopy_model& cm, const xr_vector<float>& tri_lod,
+	                              const xr_vector<Fvector>& centroid, xr_vector<u32>& ids, u32 lo, u32 hi)
+	{
+		const xr_vector<Fvector>& verts = cm.verts;
+		const u32 self = u32(m_nodes.size());
+		m_nodes.push_back(bvh_node());
+
+		Fbox b;
+		b.invalidate();
+		for (u32 k = lo; k < hi; ++k)
+			for (u32 j = 0; j < 3; ++j)
+				b.modify(verts[ids[k] * 3 + j]);
+		m_nodes[self].bmin = b.min;
+		m_nodes[self].bmax = b.max;
+
+		if (hi - lo <= BVH_LEAF)
+		{
+			m_nodes[self].a = u32(m_tris.size() / 3);
+			m_nodes[self].count = hi - lo;
+			for (u32 k = lo; k < hi; ++k)
+			{
+				for (u32 j = 0; j < 3; ++j)
+				{
+					m_tris.push_back(verts[ids[k] * 3 + j]);
+					m_uvs.push_back(cm.uvs[ids[k] * 3 + j]);
+				}
+				m_tri_lod.push_back(tri_lod[ids[k]]);
+			}
+			return self;
+		}
+
+		Fbox cb;
+		cb.invalidate();
+		for (u32 k = lo; k < hi; ++k)
+			cb.modify(centroid[ids[k]]);
+		Fvector ext;
+		ext.sub(cb.max, cb.min);
+		const u32 axis = (ext.x >= ext.y && ext.x >= ext.z) ? 0 : (ext.y >= ext.z ? 1 : 2);
+
+		const u32 mid = (lo + hi) / 2;
+		std::nth_element(ids.begin() + lo, ids.begin() + mid, ids.begin() + hi,
+		                 [&](u32 l, u32 r) { return (&centroid[l].x)[axis] < (&centroid[r].x)[axis]; });
+
+		build_node(cm, tri_lod, centroid, ids, lo, mid);
+		const u32 right = build_node(cm, tri_lod, centroid, ids, mid, hi);
+		m_nodes[self].a = right;
+		m_nodes[self].count = 0;
+		return self;
 	}
 
 	bool canopy_oracle::build()
 	{
-		static_assert(MAX_ROWS - 1 <= COL_COUNT_MAX, "a column cannot hold more cells than the directory can count");
-
 		canopy_data cd;
-		if (!cd.load())
+		CTimer t;
+		t.Start();
+		const bool loaded = cd.load(m_finest_cell, m_alpha_ref);
+		PDBG_ONLY(m_stats.data_ms = t.GetElapsed_sec() * 1000.f);
+		if (!loaded)
 			return false;
+		m_coverage.swap(cd.coverage());
+		PDBG_ONLY(m_stats.twins = cd.twins());
 
 		const xr_vector<canopy_model>& models = cd.models();
 		const xr_vector<canopy_instance>& insts = cd.instances();
@@ -179,13 +227,13 @@ namespace perception
 			Msg("! [perception] canopy: %u leaf-shader visual(s) are not a tree type and were skipped - "
 			    "canopy coverage on this level is incomplete", cd.non_tree_leaf());
 		if (cd.unresolved_swi())
-			Msg("! [perception] canopy: %u progressive-mesh crown(s) with no sliding window - baked at "
+			Msg("! [perception] canopy: %u progressive-mesh crown(s) with no sliding window - built at "
 				"full index range, leaf area over-counted", cd.unresolved_swi());
 		if (cd.no_texture())
 			Msg("! [perception] canopy: %u model(s) with no texture - contribute nothing",
 				cd.no_texture());
 
-		// unresolved_swi is deliberately not part of this: such a crown is baked at the full index
+		// unresolved_swi is deliberately not part of this: such a crown is built at the full index
 		// range, which over-counts its leaf area rather than omitting it. Over-counting is the safe
 		// direction and never a false-clear, whereas clearing m_complete would disable proxy deferral
 		// for every bush on the level and trade a harmless over-count for real double-counting.
@@ -194,207 +242,179 @@ namespace perception
 		m_overcounted = cd.unresolved_swi() != 0;
 
 		if (cd.skipped())
-			Msg("! [perception] canopy: %u skip event(s) left leaf geometry unusable - the field does not account for them",
+			Msg("! [perception] canopy: %u skip event(s) left leaf geometry unusable - the crowns do not account for them",
 				cd.skipped());
 		if (cd.rejected())
 			Msg("! [perception] canopy: %u texture(s) unreadable - those crowns contribute nothing",
 			    cd.rejected());
 
-		// Per-model object-space box once, then one transformed box per instance. The result sizes the
-		// column directory, so it is wanted before any triangle is binned.
-		xr_vector<Fbox> local(models.size());
-		for (u32 m = 0; m < models.size(); ++m)
+		// One BVH per model with leaves. Models without (frond stubs, coverage 0) get none, and their
+		// crowns are not placed.
+		xr_vector<u32> model_slot(models.size(), u32(-1));
 		{
-			local[m].invalidate();
-			for (u32 v = 0; v < models[m].verts.size(); ++v)
-				local[m].modify(models[m].verts[v]);
-		}
+			xr_vector<u32> ids;
+			xr_vector<Fvector> centroid;
+			xr_vector<float> tri_lod;
+			for (u32 m = 0; m < models.size(); ++m)
+			{
+				const canopy_model& cm = models[m];
+				const u32 n = u32(cm.verts.size() / 3);
+				if (!n || cm.coverage >= m_coverage.size() || m_coverage[cm.coverage].mean() <= 0.f)
+					continue;
 
+				const float res = float(m_coverage[cm.coverage].res());
+				ids.resize(n);
+				centroid.resize(n);
+				tri_lod.resize(n);
+				for (u32 i = 0; i < n; ++i)
+				{
+					const Fvector* v = &cm.verts[i * 3];
+					const Fvector2* uv = &cm.uvs[i * 3];
+					ids[i] = i;
+					centroid[i].add(v[0], v[1]).add(v[2]).div(3.f);
+
+					// Base texels per object metre on this card: res / sqrt(area / UV area).
+					Fvector e1, e2, c;
+					e1.sub(v[1], v[0]);
+					e2.sub(v[2], v[0]);
+					const float area = c.crossproduct(e1, e2).magnitude();
+					const float uv_area = _abs((uv[1].x - uv[0].x) * (uv[2].y - uv[0].y)
+					                           - (uv[1].y - uv[0].y) * (uv[2].x - uv[0].x));
+					tri_lod[i] = (area > 1e-8f && uv_area > 1e-12f) ? log2f(res / _sqrt(area / uv_area)) : 0.f;
+				}
+
+				crown_model md;
+				md.coverage = cm.coverage;
+				md.root = build_node(cm, tri_lod, centroid, ids, 0, n);
+				model_slot[m] = u32(m_models.size());
+				m_models.push_back(md);
+			}
+		}
+		if (m_models.empty())
+			return false;
+
+		u32 singular = 0;
 		Fbox world;
 		world.invalidate();
-		bool any = false;
+		m_crowns.reserve(insts.size());
 		for (u32 i = 0; i < insts.size(); ++i)
 		{
-			const canopy_model& m = models[insts[i].model];
-			if (m.verts.empty() || m.ext <= 0.f)
+			const canopy_instance& inst = insts[i];
+			if (inst.model >= models.size() || u32(-1) == model_slot[inst.model])
 				continue;
-			world.modify(local[insts[i].model], insts[i].xform);
-			any = true;
-		}
-		if (!any || !_valid(world.min) || !_valid(world.max))
-			return false;
 
-		// Judged in float, before any conversion: one instance matrix with a huge finite translation
-		// would make iFloor return INT_MIN, and the signed subtraction below could then wrap to a small
-		// count that passes the layout check.
-		if (_abs(world.min.x) > MAX_WORLD_COORD || _abs(world.max.x) > MAX_WORLD_COORD
-			|| _abs(world.min.y) > MAX_WORLD_COORD || _abs(world.max.y) > MAX_WORLD_COORD
-			|| _abs(world.min.z) > MAX_WORLD_COORD || _abs(world.max.z) > MAX_WORLD_COORD)
-		{
-			Msg("! [perception] canopy: extent %.0f x %.0f x %.0f m exceeds the field layout - no field",
-				world.max.x - world.min.x, world.max.z - world.min.z, world.max.y - world.min.y);
-			return false;
+			crown c;
+			if (!c.inv.invert_b(inst.xform))
+			{
+				++singular;
+				continue;
+			}
+			c.model = model_slot[inst.model];
+			c.stamp = 0;
+			const Fmatrix& x = inst.xform;
+			const float det = x._11 * (x._22 * x._33 - x._23 * x._32) - x._12 * (x._21 * x._33 - x._23 * x._31)
+				+ x._13 * (x._21 * x._32 - x._22 * x._31);
+			c.lod = -log2f(_abs(det)) / 3.f;
+
+			const bvh_node& root = m_nodes[m_models[c.model].root];
+			Fbox local;
+			local.set(root.bmin, root.bmax);
+			c.box.xform(local, inst.xform);
+			c.box.grow(BOX_PAD);
+			if (!_valid(c.box.min) || !_valid(c.box.max)
+				|| _abs(c.box.min.x) > MAX_WORLD_COORD || _abs(c.box.max.x) > MAX_WORLD_COORD
+				|| _abs(c.box.min.y) > MAX_WORLD_COORD || _abs(c.box.max.y) > MAX_WORLD_COORD
+				|| _abs(c.box.min.z) > MAX_WORLD_COORD || _abs(c.box.max.z) > MAX_WORLD_COORD)
+			{
+				++singular;
+				continue;
+			}
+
+			world.merge(c.box);
+			m_crowns.push_back(c);
 		}
+		if (singular)
+		{
+			m_complete = false;
+			Msg("! [perception] canopy: %u crown(s) with a singular or out-of-range transform were skipped",
+			    singular);
+		}
+		if (m_crowns.empty())
+			return false;
 
 		m_min_sx = iFloor(world.min.x / SLOT_SIZE);
 		m_min_sz = iFloor(world.min.z / SLOT_SIZE);
-		const int max_sx = iFloor(world.max.x / SLOT_SIZE);
-		const int max_sz = iFloor(world.max.z / SLOT_SIZE);
-		m_base_y = float(iFloor(world.min.y / SLOT_SIZE)) * SLOT_SIZE;
-
-		const u32 nx = u32(max_sx - m_min_sx) + 1;
-		const u32 nz = u32(max_sz - m_min_sz) + 1;
-		const u32 rows = u32(iFloor((world.max.y - m_base_y) / SLOT_SIZE)) + 1;
-		if (nx > MAX_COLUMNS_PER_AXIS || nz > MAX_COLUMNS_PER_AXIS || rows > MAX_ROWS - 1)
+		const u32 nx = u32(iFloor(world.max.x / SLOT_SIZE) - m_min_sx) + 1;
+		const u32 nz = u32(iFloor(world.max.z / SLOT_SIZE) - m_min_sz) + 1;
+		if (nx > MAX_COLUMNS_PER_AXIS || nz > MAX_COLUMNS_PER_AXIS)
 		{
-			Msg("! [perception] canopy: extent %ux%ux%u cells exceeds the field layout - no field",
-			    nx, nz, rows);
+			Msg("! [perception] canopy: extent %ux%u columns exceeds the index layout - no crowns", nx, nz);
 			return false;
 		}
 		m_size_x = nx;
 		m_size_z = nz;
-		m_rows = rows;
+		m_y_lo = world.min.y;
+		m_y_hi = world.max.y;
 
-		// Bin every card by its centroid. 2 m is the leaf-card scale: binning by centroid is faithful
-		// only while the cell is at least as large as the card, which is what fixes the cell size
-		// rather than taste (CANOPY-DESIGN 5 and 11).
-		bake_map acc;
-		acc.init(1u << 19);
-
-		double g_num = 0.0, g_den = 0.0;
-		double area_sum = 0.0;
-		u32 placed = 0;
-
-		for (u32 i = 0; i < insts.size(); ++i)
+		// Two passes over the crown footprints: count per column, then fill.
+		xr_vector<u32> count(nx * nz, 0);
+		for (u32 pass = 0; pass < 2; ++pass)
 		{
-			const canopy_instance& inst = insts[i];
-			const canopy_model& m = models[inst.model];
-			if (m.verts.empty() || m.ext <= 0.f)
-				continue;
-			++placed;
-
-			for (u32 v = 0; v + 2 < m.verts.size(); v += 3)
+			if (1 == pass)
 			{
-				Fvector a, b, c;
-				inst.xform.transform_tiny(a, m.verts[v + 0]);
-				inst.xform.transform_tiny(b, m.verts[v + 1]);
-				inst.xform.transform_tiny(c, m.verts[v + 2]);
+				u32 total = 0;
+				m_col.assign(nx * nz, 0);
+				for (u32 k = 0; k < count.size(); ++k)
+				{
+					const u32 n = _min(count[k], COL_COUNT_MAX);
+					m_col[k] = (total << COL_COUNT_BITS) | n;
+					total += n;
+				}
+				if (total > COL_OFFSET_MAX)
+				{
+					Msg("! [perception] canopy: %u index entries exceed the %u the directory can address - no crowns",
+					    total, COL_OFFSET_MAX);
+					return false;
+				}
+				m_ids.assign(total, 0);
+			}
 
-				// All three vertices are transformed rather than scaling a precomputed object-space
-				// area: the instance transforms carry an anisotropic scale (measured up to 0.84), so
-				// no single factor converts object area to world area.
-				Fvector e1, e2, n;
-				e1.sub(b, a);
-				e2.sub(c, a);
-				n.crossproduct(e1, e2);
-				const float n2 = n.magnitude();
-				if (n2 < EPS_S)
-					continue;
+			xr_vector<u32> filled;
+			if (1 == pass)
+				filled.assign(nx * nz, 0);
 
-				const float area = 0.5f * n2;
-				const float w = area * m.ext;
-				area_sum += area;
-
-				n.div(n2);
-				g_num += double(sqrtf(n.x * n.x + n.z * n.z) * w);
-				g_den += double(w);
-
-				Fvector cen;
-				cen.add(a, b).add(c).div(3.f);
-				if (!_valid(cen))
-					continue;
-
-				const int cx = iFloor(cen.x / SLOT_SIZE) - m_min_sx;
-				const int cz = iFloor(cen.z / SLOT_SIZE) - m_min_sz;
-				const int cy = iFloor((cen.y - m_base_y) / SLOT_SIZE);
-				if (cx < 0 || cz < 0 || cy < 0 || u32(cx) >= m_size_x || u32(cz) >= m_size_z
-					|| u32(cy) >= rows)
-					continue;
-
-				const u32 col = u32(cz) * m_size_x + u32(cx);
-				acc.add(col * MAX_ROWS + u32(cy), w);
+			for (u32 i = 0; i < m_crowns.size(); ++i)
+			{
+				const Fbox& b = m_crowns[i].box;
+				const int x0 = iFloor(b.min.x / SLOT_SIZE) - m_min_sx, x1 = iFloor(b.max.x / SLOT_SIZE) - m_min_sx;
+				const int z0 = iFloor(b.min.z / SLOT_SIZE) - m_min_sz, z1 = iFloor(b.max.z / SLOT_SIZE) - m_min_sz;
+				for (int gz = z0; gz <= z1; ++gz)
+					for (int gx = x0; gx <= x1; ++gx)
+					{
+						const u32 k = u32(gz) * nx + u32(gx);
+						if (0 == pass)
+							++count[k];
+						else if (filled[k] < (m_col[k] & COL_COUNT_MAX))
+							m_ids[(m_col[k] >> COL_COUNT_BITS) + filled[k]++] = i;
+					}
 			}
 		}
-
-		if (!acc.used() || g_den <= 0.0)
-			return false;
-
-		m_g = float(g_num / g_den) * (2.f / PI);
-
-		xr_vector<cell_entry> cells;
-		cells.reserve(acc.used());
-		for (u32 i = 0; i < acc.slots(); ++i)
-		{
-			if (bake_map::EMPTY == acc.key_at(i))
-				continue;
-			if (acc.val_at(i) < MIN_CELL_EXT)
-				continue;
-			cell_entry e;
-			e.key = acc.key_at(i);
-			e.ext = acc.val_at(i);
-			cells.push_back(e);
-		}
-		if (cells.empty())
-			return false;
-
-		// Sorting by key groups the cells by column and orders them by row inside it, which is exactly
-		// the layout the directory addresses.
-		std::sort(cells.begin(), cells.end(), cell_less);
-
-		if (cells.size() > COL_OFFSET_MAX)
-		{
-			Msg("! [perception] canopy: %u cells exceed the %u the directory can address - no field",
-			    u32(cells.size()), COL_OFFSET_MAX);
-			return false;
-		}
-
-		m_col.assign(u32(m_size_x) * m_size_z, 0);
-		m_runs.reserve(cells.size());
 
 		u32 dropped = 0;
-		u32 i = 0;
-		while (i < cells.size())
+		for (u32 k = 0; k < count.size(); ++k)
+			dropped += count[k] - (m_col[k] & COL_COUNT_MAX);
+		if (dropped)
 		{
-			const u32 col = cells[i].key / MAX_ROWS;
-			u32 j = i;
-			while (j < cells.size() && cells[j].key / MAX_ROWS == col)
-				++j;
-
-			u32 count = j - i;
-			if (count > COL_COUNT_MAX)
-			{
-				dropped += count - COL_COUNT_MAX;
-				count = COL_COUNT_MAX;
-			}
-
-			m_col[col] = (u32(m_runs.size()) << COL_COUNT_BITS) | count;
-			for (u32 k = 0; k < count; ++k)
-			{
-				run r;
-				r.ext = cells[i + k].ext;
-				r.y = u8(cells[i + k].key % MAX_ROWS);
-				m_runs.push_back(r);
-			}
-			i = j;
+			m_complete = false;
+			Msg("! [perception] canopy: %u crown listing(s) past the %u-per-column limit were dropped", dropped,
+			    COL_COUNT_MAX);
 		}
 
-		// Unreachable while a column holds at most one cell per row and rows are capped below
-		// COL_COUNT_MAX (the static_assert in build()); kept for the day MAX_ROWS is raised. Dropped
-		// cells are vegetation the field no longer accounts for.
-		if (dropped)
-			m_complete = false;
-
-		if (dropped)
-			Msg("! [perception] canopy: %u cell(s) past the %u-per-column limit were dropped", dropped,
-			    COL_COUNT_MAX);
-
 #ifdef PERCEPTION_DEBUG
-		m_stats.cells = u32(m_runs.size());
-		m_stats.instances = placed;
-		m_stats.models = u32(models.size());
-		m_stats.leaf_area = float(area_sum);
-		PDBG_LOG("~ [perception] canopy: %u model triangle(s), %.0f m2 instanced card area, %u cell(s) from %u slot(s)",
-		         cd.triangles(), float(area_sum), u32(m_runs.size()), acc.slots());
+		m_stats.instances = u32(m_crowns.size());
+		m_stats.models = u32(m_models.size());
+		m_stats.triangles = u32(m_tris.size() / 3);
+		m_stats.nodes = u32(m_nodes.size());
 #endif
 		return true;
 	}
@@ -415,26 +435,100 @@ namespace perception
 			return false;
 
 		const u32 first = c >> COL_COUNT_BITS;
-		y_lo = m_base_y + float(m_runs[first].y) * SLOT_SIZE;
-		y_hi = m_base_y + float(m_runs[first + count - 1].y) * SLOT_SIZE + SLOT_SIZE;
+		y_lo = flt_max;
+		y_hi = -flt_max;
+		for (u32 k = 0; k < count; ++k)
+		{
+			const Fbox& b = m_crowns[m_ids[first + k]].box;
+			y_lo = _min(y_lo, b.min.y);
+			y_hi = _max(y_hi, b.max.y);
+		}
 		return true;
 	}
 
-	void canopy_oracle::march(const Fvector& from, const Fvector& to, march_result& out,
-	                          xr_vector<veg_chord>* chords) const
+	float canopy_oracle::pierce(const crown& c, const Fvector& from, const Fvector& dir, float t0, float t1,
+	                            const cone_along& cone, u32& hits, xr_vector<canopy_hit>* rec) const
+	{
+		// The inverse is affine, so the object-space direction stays unnormalised and t keeps meaning
+		// world metres.
+		Fvector o, d, inv;
+		c.inv.transform_tiny(o, from);
+		c.inv.transform_dir(d, dir);
+		inv.set(slab_inv(d.x), slab_inv(d.y), slab_inv(d.z));
+
+		const crown_model& md = m_models[c.model];
+		const coverage_lod& cov = m_coverage[md.coverage];
+
+		u32 stack[BVH_STACK];
+		u32 sp = 0;
+		stack[sp++] = md.root;
+
+		float tau = 0.f;
+		hits = 0;
+		while (sp)
+		{
+			const u32 ni = stack[--sp];
+			const bvh_node& n = m_nodes[ni];
+			PDBG_ONLY(++m_stats.node_tests);
+
+			float a = t0, b = t1;
+			if (!clip_box(o, inv, n.bmin, n.bmax, a, b))
+				continue;
+
+			if (n.count)
+			{
+				PDBG_ONLY(m_stats.triangle_tests += n.count);
+				for (u32 k = 0; k < n.count; ++k)
+				{
+					const u32 tri = n.a + k;
+					float t, bu, bw;
+					if (!pierces(o, d, &m_tris[tri * 3], t0, t1, t, bu, bw))
+						continue;
+
+					canopy_hit h;
+					h.crown = u32(&c - &m_crowns[0]);
+					h.t = t;
+					h.footprint = cone.eye + cone.slope * t;
+					h.near_plane = t < cone.near_plane;
+					h.level = 0.f;
+					h.coverage = 0.f;
+					if (!h.near_plane)
+					{
+						const Fvector2* uv = &m_uvs[tri * 3];
+						const float bv = 1.f - bu - bw;
+						const float u = uv[0].x * bv + uv[1].x * bu + uv[2].x * bw;
+						const float v = uv[0].y * bv + uv[1].y * bu + uv[2].y * bw;
+						h.level = fast_log2(h.footprint) + m_tri_lod[tri] + c.lod;
+						h.coverage = _min(cov.sample(u, v, h.level), COVERAGE_MAX);
+						if (h.coverage > 0.f)
+							tau -= logf(1.f - h.coverage);
+						++hits;
+					}
+					if (rec)
+						rec->push_back(h);
+				}
+				continue;
+			}
+
+			stack[sp++] = n.a;
+			stack[sp++] = ni + 1;
+		}
+		return tau;
+	}
+
+	void canopy_oracle::march(const Fvector& from, const Fvector& to, const sight_cone& cone, march_result& out,
+	                          xr_vector<veg_chord>* chords, xr_vector<canopy_hit>* hit_list) const
 	{
 		out.tau = 0.f;
-		out.cells = 0;
+		out.crowns = 0;
 		if (!m_ready)
 			return;
 
 		PDBG_ONLY(++m_stats.marches);
 
-		// Whole-field reject, a conservative box test with no clipping. Without it a ray that never
-		// touches the field still pays the full slot walk (up to 4096 steps) to fail every bounds
-		// check, uncached, on every trace.
-		const float field_top = m_base_y + float(m_rows) * SLOT_SIZE;
-		if (_max(from.y, to.y) < m_base_y || _min(from.y, to.y) > field_top)
+		// Whole-index reject, a conservative box test. Without it a ray that never comes near a crown
+		// still pays the full column walk to fail every bounds check.
+		if (_max(from.y, to.y) < m_y_lo || _min(from.y, to.y) > m_y_hi)
 			return;
 		const float fx0 = float(m_min_sx) * SLOT_SIZE;
 		const float fx1 = float(m_min_sx + int(m_size_x)) * SLOT_SIZE;
@@ -448,9 +542,17 @@ namespace perception
 		if (!w.valid())
 			return;
 		const Fvector& dir = w.dir();
+		const float len = w.len();
 
-		const bool climbs = _abs(dir.y) > EPS_S;
-		const float inv_y = climbs ? (1.f / dir.y) : 0.f;
+		Fvector inv;
+		inv.set(slab_inv(dir.x), slab_inv(dir.y), slab_inv(dir.z));
+
+		cone_along ca;
+		ca.eye = _max(cone.eye, 1e-3f);
+		ca.slope = (_max(cone.target, ca.eye) - ca.eye) / len;
+		ca.near_plane = cone.near_plane;
+
+		const u32 id = ++m_march_id;
 
 		while (w.next())
 		{
@@ -466,62 +568,46 @@ namespace perception
 
 			PDBG_ONLY(++m_stats.columns_walked);
 
-			const float t_enter = w.t_enter();
-			const float t_exit = w.t_exit();
-
-			// The ray's height WHERE IT CROSSES THIS COLUMN. Over a whole segment a long shot spans
-			// tens of metres vertically and overlaps nearly every column's canopy band, so a global
-			// test rejects almost nothing.
-			const float ya = from.y + dir.y * t_enter;
-			const float yb = from.y + dir.y * t_exit;
-			const float y_min = _min(ya, yb);
-			const float y_max = _max(ya, yb);
-
 			const u32 first = c >> COL_COUNT_BITS;
-			if (y_max < m_base_y + float(m_runs[first].y) * SLOT_SIZE
-				|| y_min > m_base_y + float(m_runs[first + count - 1].y) * SLOT_SIZE + SLOT_SIZE)
-			{
-				PDBG_ONLY(++m_stats.columns_skipped);
-				continue;
-			}
-
 			for (u32 k = 0; k < count; ++k)
 			{
-				const run& r = m_runs[first + k];
-				const float lo = m_base_y + float(r.y) * SLOT_SIZE;
-				const float hi = lo + SLOT_SIZE;
-				if (y_max < lo || y_min > hi)
+				const crown& cr = m_crowns[m_ids[first + k]];
+				if (cr.stamp == id)
 					continue;
+				cr.stamp = id;
+				PDBG_ONLY(++m_stats.boxes_tested);
 
-				float t0 = t_enter, t1 = t_exit;
-				if (climbs)
+				float t0 = 0.f, t1 = len;
+				if (!clip_box(from, inv, cr.box.min, cr.box.max, t0, t1))
+					continue;
+				PDBG_ONLY(++m_stats.boxes_entered);
+
+				u32 hits = 0;
+				const float tau = pierce(cr, from, dir, t0, t1, ca, hits, hit_list);
+				if (hits)
 				{
-					float ta = (lo - from.y) * inv_y;
-					float tb = (hi - from.y) * inv_y;
-					if (ta > tb)
-						std::swap(ta, tb);
-					t0 = _max(t0, ta);
-					t1 = _min(t1, tb);
+					out.tau += tau;
+					++out.crowns;
+					PDBG_ONLY(m_stats.hits += hits);
 				}
 
-				const float path = t1 - t0;
-				if (path <= 0.f)
-					continue;
-
-				// Leaf-area-density extinction, with the density measured off real triangles: the
-				// chance of meeting a card per metre is G * (area / volume), and the card's own
-				// -ln(1-alpha) is already folded into ext at bake time.
-				const float tau = m_g * (r.ext / CELL_VOLUME) * path;
-				out.tau += tau;
-				++out.cells;
-				PDBG_ONLY(++m_stats.cells_entered);
-
+				// A crossed crown with no card hit is reported too: the debug view shows a ray that went
+				// between the cards rather than nowhere near them.
 				if (chords)
 				{
 					veg_chord ch;
 					ch.enter.mad(from, dir, t0);
 					ch.exit.mad(from, dir, t1);
 					ch.blocked = 1.f - expf(-tau);
+					ch.tau = tau;
+					ch.origin.set((cr.box.min.x + cr.box.max.x) * .5f, cr.box.min.y, (cr.box.min.z + cr.box.max.z) * .5f);
+					ch.radius = _max(cr.box.max.x - cr.box.min.x, cr.box.max.z - cr.box.min.z) * .5f;
+					ch.y_lo = cr.box.min.y;
+					ch.y_hi = cr.box.max.y;
+					ch.model = u16(cr.model);
+					ch.crown = u32(&cr - &m_crowns[0]);
+					ch.hits = u16(_min(hits, 0xffffu));
+					ch.inside = !!cr.box.contains(from);
 					chords->push_back(ch);
 				}
 			}

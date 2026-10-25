@@ -21,13 +21,23 @@ foliage_k                      = 1.00
 
 ; Trim on the measured tree-canopy optical depth, the same way foliage_k works for grass:
 ;   transmittance = exp(-canopy_k * tau)
-; tau is accumulated over the 2 m cells the ray crossed, each holding the extinction-weighted leaf
-; area baked from that level's real leaf triangles and their real atlas alpha - so 1.00 again means
-; "take the measurement at its word". Conifer cards come out roughly 2.5 to 3x denser than oak or
-; poplar ones (extinction 0.521 for spruce and pine, atlas alpha 0.406, against 0.17-0.21 for alpha
-; 0.156-0.186) and bare-branch winter trees nearly transparent, with nothing tuned per species.
-; Tunable live from the console as perception_canopy_k.
+; tau is summed over the leaf cards the ray actually passes through, each counting how much of its
+; texture is leaf right around the point the ray crosses it - so 1.00 again means "take the
+; measurement at its word". A ray through the gap between leaves of a big sparse card costs nothing; a
+; ray through a dense clump costs nearly everything. Tunable live from the console as
+; perception_canopy_k.
 canopy_k                       = 1.00
+
+; Metres. How wide a line of sight is, at the observer's eye and at the target. Leaves are judged over
+; that width where the ray crosses them: narrow near the eye, so an NPC deep in a bush can still look
+; out through gaps around its head, and as wide as a body part near the target, so a pinhole between
+; leaves does not reveal someone hiding behind them. Raise canopy_cone_eye if NPCs in bushes see out
+; too poorly, lower it if they see out too easily; raise canopy_cone_target if leaves near the target
+; hide too little. canopy_cone_eye also sets how fine the leaf textures are read, so lowering it past
+; its value at level load takes effect fully only after the next load. Tunable live as
+; perception_canopy_cone_eye and perception_canopy_cone_target.
+canopy_cone_eye                = 0.05
+canopy_cone_target             = 0.30
 
 ; Trim on the fog curve measured from the live fog shader:
 ;   transmittance = measured ^ atmosphere_k

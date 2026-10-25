@@ -7,21 +7,11 @@
 
 namespace perception
 {
-	enum veg_class
-	{
-		veg_bush = 0,
-		veg_tree,
-		veg_class_count
-	};
-
 	// AI-oriented view of level foliage.
 	//
-	// Grass occlusion is resolved against the ACTUAL detail instances the renderer places, not
-	// against a per-slot statistical average. The average could not represent structure inside a
-	// slot - the palette carries four corner values per model and the renderer interpolates them at
-	// every candidate point, so roads, paths and trampled ground live *within* slots. Averaging the
-	// corners reported concealment over asphalt and half-concealment over the grass beside it, and no
-	// coefficient can undo information the representation has already discarded.
+	// Grass occlusion is resolved against the actual detail instances the renderer places: roads,
+	// paths and trampled ground live within a 2 m slot, so nothing coarser than an instance can tell
+	// them from the grass beside them.
 	//
 	// Instances come from IRender_interface::resolve_detail_slot, which runs the engine's own
 	// placement for one slot. Placement is not a formula that stays put - it carries two user
@@ -34,7 +24,6 @@ namespace perception
 
 		void on_level_load();
 		void on_level_unload();
-		// Covers the slot grid; leafiness()/gap_fraction() are answerable regardless.
 		bool ready() const { return m_ready; }
 
 		// True when this renderer places no detail objects at all. Distinct from "no grass in this
@@ -82,12 +71,6 @@ namespace perception
 		// model the slot references. Cheap reject before any slot is resolved. false = no foliage ids.
 		bool band_at(float x, float z, float& y_lo, float& y_hi) const;
 
-		// 0..1 mean alpha of this level's vegetation textures. Drops in winter/bare-branch mods.
-		float leafiness(veg_class c) const;
-
-		// 0..1 share of this vegetation class's texture footprint that is effectively a hole.
-		float gap_fraction(veg_class c) const;
-
 #ifdef PERCEPTION_DEBUG
 		struct stats
 		{
@@ -122,8 +105,6 @@ namespace perception
 #endif
 
 	private:
-		void scan_leafiness();
-
 		// The slot grid stays as level.details holds it: bounds for the pre-reject and the model ids
 		// that decide the band's top. 4 bytes per 2 m slot, level-wide.
 		struct cell
@@ -163,8 +144,6 @@ namespace perception
 		u32 m_size_z = 0;
 		int m_offs_x = 0;
 		int m_offs_z = 0;
-		float m_leafiness[veg_class_count] = {1.f, 1.f};
-		float m_gap[veg_class_count] = {0.f, 0.f};
 		float m_max_slab_h = 0.f;
 		u32 m_resolve_budget = 0;
 		u32 m_cache_max = 0;

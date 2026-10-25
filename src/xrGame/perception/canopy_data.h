@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../build_config_defines.h"
+#include "coverage_lod.h"
 
 namespace perception
 {
@@ -10,8 +11,9 @@ namespace perception
 	struct canopy_model
 	{
 		shared_str texture;
-		float ext;                // -ln(1 - mean atlas alpha): optical depth one card contributes
-		xr_vector<Fvector> verts; // 3 per triangle
+		u32 coverage;             // into canopy_data::coverage(); u32(-1) = no readable texture
+		xr_vector<Fvector> verts; // 3 per triangle, each card once
+		xr_vector<Fvector2> uvs;  // 3 per triangle, beside verts
 	};
 
 	// One placed tree crown.
@@ -35,13 +37,20 @@ namespace perception
 		canopy_data();
 		~canopy_data();
 
-		bool load();
+		// finest_cell: metres of card the base level of each coverage pyramid resolves.
+		// alpha_ref: 0..1, the cutoff for textures whose alpha is not one bit.
+		bool load(float finest_cell, float alpha_ref);
 		void unload();
 
 		const xr_vector<canopy_model>& models() const { return m_models; }
 		const xr_vector<canopy_instance>& instances() const { return m_instances; }
 
-		u32 triangles() const { return m_triangles; }
+		// One per distinct leaf texture. Writable so the caller can take them over.
+		xr_vector<coverage_lod>& coverage() { return m_coverage; }
+
+		// Triangles dropped because another of the same model has the same three positions: leaf cards
+		// are stored as a front and a back face.
+		u32 twins() const { return m_twins; }
 
 		// Leaf-shader visuals that were NOT a tree type, and so contributed nothing. Zero on both
 		// levels measured, but that is two levels: a non-zero count here is a coverage gap in this
@@ -49,7 +58,7 @@ namespace perception
 		u32 non_tree_leaf() const { return m_non_tree_leaf; }
 
 		// Distinct textures that could not be read. The models using them are NOT dropped: they keep
-		// ext = 0 and the oracle skips them, so a non-zero count means crowns that contribute nothing.
+		// no coverage and the oracle skips them, so a non-zero count means crowns that contribute nothing.
 		u32 rejected() const { return m_rejected; }
 
 		// Progressive-mesh tree visuals whose sliding window could not be resolved (chunk missing, id
@@ -75,6 +84,8 @@ namespace perception
 			u32 stride;
 			u32 count;
 			u32 pos_offset;
+			u32 tc_offset;
+			u8 tc_type;  // DECLTYPE of TEXCOORD0; DECLTYPE_UNUSED when absent
 			bool usable; // a float3 POSITION element was found
 		};
 
@@ -98,7 +109,8 @@ namespace perception
 		bool read_visuals(IReader* level);
 		void read_visual(IReader* v);
 		void decode_models();
-		void resolve_alpha();
+		void drop_twins(canopy_model& cm);
+		void resolve_coverage(float finest_cell, float alpha_ref);
 
 		// Closes level.geom and frees the descriptors that point into it. Nothing after decode_models()
 		// needs them, and the buffer is ~100 MB on Escape.
@@ -126,12 +138,13 @@ namespace perception
 		xr_vector<model_key> m_keys;
 		xr_vector<canopy_model> m_models;
 		xr_vector<canopy_instance> m_instances;
+		xr_vector<coverage_lod> m_coverage;
 
-		u32 m_triangles;
 		u32 m_non_tree_leaf;
 		u32 m_rejected;
 		u32 m_unresolved_swi;
 		u32 m_no_texture;
 		u32 m_skipped;
+		u32 m_twins;
 	};
 }

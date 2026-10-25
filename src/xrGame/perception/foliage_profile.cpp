@@ -30,24 +30,6 @@ namespace perception
 		return FS.r_open(fn);
 	}
 
-	bool texture_mean_alpha(LPCSTR name, const uv_rect& uv, float& out_alpha, dds_info* out_info,
-	                        float* out_gap)
-	{
-		IReader* r = open_texture(name);
-		if (!r)
-			return false;
-
-		const u8* data = (const u8*)r->pointer();
-		const u32 size = u32(r->length());
-
-		if (out_info)
-			dds_probe(data, size, *out_info);
-
-		const bool ok = dds_mean_alpha(data, size, uv, out_alpha, 64, out_gap);
-		FS.r_close(r);
-		return ok;
-	}
-
 	float tuft_density::extinction(const Fvector& q, float k_up, float k_flat) const
 	{
 		const float rho = _sqrt(q.x * q.x + q.z * q.z);
@@ -227,21 +209,10 @@ namespace perception
 			if (!_valid(p.height) || p.height < 0.f)
 				p.height = 0.f;
 
-			// Footprint radius for the cylinder proxy. The larger of the two horizontal extents, so a
-			// flat crossed-quad model is not modelled as a sliver a ray can slip past edge-on.
-			const float ex = m.bbox.max.x - m.bbox.min.x;
-			const float ez = m.bbox.max.z - m.bbox.min.z;
-			p.radius = _max(ex, ez) * .5f;
-			if (!_valid(p.radius) || p.radius < 0.f)
-				p.radius = 0.f;
-
-			p.area = m.area;
 			// The range DetailManager_Decompress.cpp draws instance scale from.
 			p.max_placement_scale = _max(m.min_scale * 0.5f, m.max_scale * 0.9f);
 			if (!_valid(p.max_placement_scale) || p.max_placement_scale < 0.f)
 				p.max_placement_scale = 0.f;
-			p.opacity = 0.f;
-			p.gap = 0.f;
 			ZeroMemory(&p.density, sizeof(p.density));
 			density_bake_stats st;
 			ZeroMemory(&st, sizeof(st));
@@ -267,43 +238,16 @@ namespace perception
 
 			if (cached)
 			{
-				const u8* data = (const u8*)cached->pointer();
-				const u32 size = u32(cached->length());
-
-				float w_sum = 0.f, a_sum = 0.f, g_sum = 0.f;
-				for (u32 f = 0; f < m.faces.size(); ++f)
-				{
-					float a = 0.f, g = 0.f;
-					if (!dds_mean_alpha(data, size, m.faces[f].uv, a, 64, &g))
-						continue;
-					a_sum += a * m.faces[f].area;
-					g_sum += g * m.faces[f].area;
-					w_sum += m.faces[f].area;
-				}
-
-				if (w_sum > EPS_S)
-				{
-					p.opacity = a_sum / w_sum;
-					p.gap = g_sum / w_sum;
-				}
-				else
-					dds_mean_alpha(data, size, m.uv, p.opacity, 64, &p.gap);
-
-				if (!_valid(p.opacity))
-					p.opacity = 0.f;
-				if (!_valid(p.gap))
-					p.gap = 0.f;
-
 				dds_alpha_view view;
-				if (view.open(data, size))
+				if (view.open((const u8*)cached->pointer(), u32(cached->length())))
 					bake_density(m, view, alpha_ref, p.density, st);
 				else
 					Msg("! [perception] foliage: atlas '%s' has no readable mip 0 - model %u blocks nothing",
 					    m.texture.c_str(), i);
 			}
 
-			PDBG_LOG("~ [perception]   model %-3d h=%5.2fm r=%5.2fm a=%8.3f tris %-4d alpha=%.3f  %s",
-			         i, p.height, p.radius, p.area, u32(m.faces.size()), p.opacity, m.texture.c_str());
+			PDBG_LOG("~ [perception]   model %-3d h=%5.2fm tris %-4d  %s", i, p.height, u32(m.faces.size()),
+			         m.texture.c_str());
 #ifdef PERCEPTION_DEBUG
 			{
 				const tuft_density& d = p.density;

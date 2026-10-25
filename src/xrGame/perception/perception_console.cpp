@@ -113,16 +113,34 @@ namespace perception
 			Msg("~   canopy tgt y=%.2f  band %s %.2f..%.2f", seg.to.y, hb ? "yes " : "none",
 			    hb ? lo : 0.f, hb ? hi : 0.f);
 
-			// Cells are disjoint by construction, so unlike the grass tufts their lengths sum rather
-			// than needing an interval union.
 			const occlusion_query& q = occlusion_query::instance();
-			float covered = 0.f;
-			for (u32 i = 0; i < q.last_canopy.size(); ++i)
-				covered += q.last_canopy[i].enter.distance_to(q.last_canopy[i].exit);
+			const occlusion_model& mdl = q.model();
+			Msg("~   canopy %s", co.complete() ? "complete" : "INCOMPLETE - proxy hits also count");
+			Msg("~   canopy crossed %u crown box(es), pierced cards of %u crown(s)   tau %.3f   sight line %.2f -> %.2f m, near plane %.2f m",
+			    u32(q.last_canopy.size()), u32(r.canopy_crowns), r.canopy_tau, mdl.canopy_cone_eye,
+			    mdl.canopy_cone_target, VIEWPORT_NEAR);
 
-			Msg("~   canopy field %s", co.complete() ? "complete" : "INCOMPLETE - proxy hits also count");
-			Msg("~   canopy crossed %u cell(s) over %.2f m of %.2f m   tau %.3f",
-			    u32(r.canopy_cells), covered, seg.length, r.canopy_tau);
+			// Per crown box crossed, from the eye: where the depth comes from. hits 0 means the ray went
+			// between that crown's cards. Under it, each card pierced.
+			for (u32 i = 0; i < q.last_canopy.size(); ++i)
+			{
+				const veg_chord& c = q.last_canopy[i];
+				const float a = seg.from.distance_to(c.enter), b = seg.from.distance_to(c.exit);
+				Msg("~     crown %-5u model %-3u %6.2f..%6.2f m  at (%.1f, %.1f, %.1f)  hits %-3u tau %.3f  blocked %.3f%s",
+				    c.crown, u32(c.model), _min(a, b), _max(a, b), c.origin.x, c.origin.y, c.origin.z, u32(c.hits),
+				    c.tau, c.blocked, c.inside ? "  (eye inside)" : "");
+				for (u32 k = 0; k < q.last_canopy_hits.size(); ++k)
+				{
+					const canopy_hit& h = q.last_canopy_hits[k];
+					if (h.crown != c.crown)
+						continue;
+					if (h.near_plane)
+						Msg("~       card at %6.2f m  skipped (near plane)", h.t);
+					else
+						Msg("~       card at %6.2f m  footprint %5.1f cm  level %4.1f  coverage %.3f", h.t,
+						    100.f * h.footprint, h.level, h.coverage);
+				}
+			}
 
 			if (r.deferred_hits)
 				Msg("~   canopy %u vegetation proxy hit(s) ignored - the field owns that vegetation "
@@ -136,6 +154,8 @@ namespace perception
 		{
 			const float dist = seg.length;
 			Msg("~ [perception] probe  %.1f m", dist);
+			Msg("~   eye (%.3f, %.3f, %.3f) -> target (%.3f, %.3f, %.3f)", seg.from.x, seg.from.y, seg.from.z,
+			    seg.to.x, seg.to.y, seg.to.z);
 			Msg("~   transmittance %.3f   dominant %s (%s)", r.transmittance,
 			    occluder_class_name(r.dominant),
 			    r.dominant_material.size() ? r.dominant_material.c_str() : "-");
@@ -211,18 +231,21 @@ namespace perception
 				    mdl.resolve_budget);
 			}
 
-			// Canopy has no cache and no budget, so what matters is only how much of the walk the band
-			// reject threw away before any cell was touched.
+			// Canopy has no cache and no budget; its cost is the crown boxes and BVH work per march.
 			const canopy_oracle::stats& cstats = canopy_oracle::instance().get_stats();
-			if (cstats.cells)
-				Msg("~   canopy field %u cell(s) from %u instance(s) / %u model(s), card area %.0f m2, bake %.1f ms, %s",
-				    cstats.cells, cstats.instances, cstats.models, cstats.leaf_area, cstats.bake_ms,
+			if (cstats.instances)
+				Msg("~   canopy %u crown(s) / %u model(s), %u triangle(s) (%u twin(s) dropped), %u BVH node(s), %u coverage pyramid(s) %.2f MB, %.2f MB, bake %.1f ms, %s",
+				    cstats.instances, cstats.models, cstats.triangles, cstats.twins, cstats.nodes, cstats.textures,
+				    cstats.coverage_mb, cstats.memory_mb, cstats.bake_ms,
 					canopy_oracle::instance().complete() ? "complete" : "INCOMPLETE");
 			if (cstats.marches)
-				Msg("~   canopy %u march(es): %u column(s) with canopy, %u missed the band (%.1f %%), %u cell(s) entered",
-				    cstats.marches, cstats.columns_walked, cstats.columns_skipped,
-				    cstats.columns_walked ? (100.f * float(cstats.columns_skipped) / float(cstats.columns_walked)) : 0.f,
-				    cstats.cells_entered);
+			{
+				const float n = float(cstats.marches);
+				Msg("~   canopy %u march(es), per march: %.1f column(s) with crowns, %.1f box(es) tested, %.1f entered, %.1f BVH node(s), %.1f triangle test(s), %.1f card hit(s)",
+				    cstats.marches, float(cstats.columns_walked) / n, float(cstats.boxes_tested) / n,
+				    float(cstats.boxes_entered) / n, float(cstats.node_tests) / n, float(cstats.triangle_tests) / n,
+				    float(cstats.hits) / n);
+			}
 
 			const occlusion_query& q = occlusion_query::instance();
 			if (q.validate_n)
@@ -422,6 +445,8 @@ namespace perception
 			CMD4(CCC_Float, "perception_ray_extend", &mdl.ray_extend, 0.f, 5.f);
 			CMD4(CCC_Float, "perception_foliage_k", &mdl.foliage_k, 0.f, 100.f);
 			CMD4(CCC_Float, "perception_canopy_k", &mdl.canopy_k, 0.f, 100.f);
+			CMD4(CCC_Float, "perception_canopy_cone_eye", &mdl.canopy_cone_eye, 0.01f, 1.f);
+			CMD4(CCC_Float, "perception_canopy_cone_target", &mdl.canopy_cone_target, 0.01f, 2.f);
 			CMD4(CCC_Float, "perception_atmosphere_k", &mdl.atmosphere_k, 0.f, 100.f);
 
 			CMD4(CCC_Integer, "perception_dbg_draw", &g_draw, 0, 1);

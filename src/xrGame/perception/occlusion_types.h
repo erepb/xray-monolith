@@ -63,15 +63,30 @@ namespace perception
 		Fvector enter, exit;
 		float blocked; // 0..1 fraction of this crossing that is opaque
 
-		// The crossed grass tuft, world space; radius 0 for a canopy cell.
+		// The crossed grass tuft (bounding cylinder) or crown (half the larger side of its world box),
+		// world space.
 		Fvector origin = {0.f, 0.f, 0.f};
-		float radius = 0.f;                 // bounding cylinder
+		float radius = 0.f;
 		float y_lo = 0.f, y_hi = 0.f;
 		float core_radius = 0.f;            // 90 % of the drawn opaque area lies inside
 		float core_top = 0.f;               // 95 % lies below
 		float scale = 0.f;
 		float tau = 0.f;
 		u16 model = 0xffff;
+		u32 crown = u32(-1);                // canopy only: the crossed crown
+		u16 hits = 0;                       // canopy only: cards pierced
+		bool inside = false;                // canopy only: the eye is inside this crown
+	};
+
+	// One leaf card a canopy ray pierced, for the probe.
+	struct canopy_hit
+	{
+		u32 crown;
+		float t;         // metres from the eye
+		float footprint; // metres, the sight line's width at t
+		float level;     // coverage pyramid level read, 0 = base
+		float coverage;  // 0..1, leaf share of the footprint
+		bool near_plane; // nearer the eye than the renderer draws; not counted
 	};
 
 	// A point on the near surface is hit by its own shape at the end of the segment, give or take
@@ -87,9 +102,9 @@ namespace perception
 		float foliage_tau;              // optical depth of grass on the path, before the transfer function
 		float canopy_tau;               // optical depth of tree canopy, likewise
 
-		// Occupied canopy cells the ray crossed. Unlike the debug chord list this is counted whether
-		// or not the debug view is recording.
-		u16 canopy_cells;
+		// Crowns whose cards the ray pierced. Unlike the debug chord list this is counted whether or
+		// not the debug view is recording.
+		u16 canopy_crowns;
 
 		// Geometry hits skipped because a material maps to occ_canopy: the canopy field already
 		// accounts for that vegetation, so counting the proxy hull too would double it. Reported so
