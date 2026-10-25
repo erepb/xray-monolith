@@ -53,9 +53,10 @@ bool CLevel::Load_GameSpecific_Before()
 bool CLevel::Load_GameSpecific_After()
 {
 #ifdef PERCEPTION_V2
+	// The occlusion model is read first: the grass bake needs its alpha cutoff.
+	perception::occlusion::on_level_load();
 	perception::foliage_oracle::instance().on_level_load();
 	perception::canopy_oracle::instance().on_level_load();
-	perception::occlusion::on_level_load();
 #endif
 
 	R_ASSERT(m_StaticParticles.empty());

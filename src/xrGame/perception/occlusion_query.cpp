@@ -67,6 +67,7 @@ namespace perception
 
 		foliage_oracle::instance().set_max_slab_h(m_model.max_slab_h);
 		foliage_oracle::instance().set_resolve_limits(m_model.resolve_budget, m_model.resolve_cache_slots);
+		foliage_oracle::instance().set_alpha_ref(m_model.alpha_ref);
 		m_ready = true;
 	}
 

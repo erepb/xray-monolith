@@ -142,7 +142,7 @@ namespace perception
 			++traced;
 
 			if (listener)
-				listener->on_trace(r);
+				listener->on_trace(seg, s.bone, r);
 		}
 	}
 

@@ -221,8 +221,8 @@ namespace perception
 			}
 
 			m->r_u32();   // flags
-			m->r_float(); // min scale
-			m->r_float(); // max scale
+			d.min_scale = m->r_float();
+			d.max_scale = m->r_float();
 
 			d.verts = m->r_u32();
 			const u32 n_idx = m->r_u32();
@@ -275,6 +275,15 @@ namespace perception
 					f.uv.modify(*(const float*)(p0 + 12), *(const float*)(p0 + 16));
 					f.uv.modify(*(const float*)(p1 + 12), *(const float*)(p1 + 16));
 					f.uv.modify(*(const float*)(p2 + 12), *(const float*)(p2 + 16));
+					f.p[0] = a;
+					f.p[1] = b;
+					f.p[2] = c;
+					const u8* pv[3] = {p0, p1, p2};
+					for (u32 k = 0; k < 3; ++k)
+					{
+						f.u[k] = *(const float*)(pv[k] + 12);
+						f.v[k] = *(const float*)(pv[k] + 16);
+					}
 
 					if (!_valid(f.area))
 						continue;

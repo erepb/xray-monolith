@@ -12,6 +12,7 @@ namespace perception
 	namespace debug
 	{
 		int g_draw = 1;
+		int g_draw_tufts = 0;
 		int g_log = 0;
 		int g_log_interval = 1000;
 		int g_explain = 0;
@@ -182,6 +183,18 @@ namespace perception
 			{
 				const chord_record& x = b.chords[i];
 				r.draw_line(Fidentity, x.enter, x.exit, chord_colour(x.blocked), false);
+				if (g_draw_tufts && x.radius > 0.f)
+				{
+					Fvector c = x.origin;
+					c.y = (x.y_lo + x.y_hi) * .5f;
+					r.draw_aabb(c, x.radius, (x.y_hi - x.y_lo) * .5f, x.radius, dimmed(chord_colour(x.blocked), 0.4f), false);
+					if (x.core_radius > 0.f && x.core_top > x.y_lo)
+					{
+						c.y = (x.y_lo + x.core_top) * .5f;
+						r.draw_aabb(c, x.core_radius, (x.core_top - x.y_lo) * .5f, x.core_radius,
+						            D3DCOLOR_XRGB(255, 140, 0), false);
+					}
+				}
 			}
 
 			for (u32 i = 0; i < b.points.size(); ++i)

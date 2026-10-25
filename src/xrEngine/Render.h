@@ -291,6 +291,9 @@ public:
 	// Bumped whenever placement changes, so consumers can drop cached instances.
 	virtual u32 detail_generation() { return 0; }
 
+	// The height slider placement multiplies every detail instance's scale by, as it stands now.
+	virtual float detail_height() { return 1.f; }
+
 	// virtual ref_shader getShader (int id) = 0;
 	virtual IRender_Sector* getSector(int id) = 0;
 	virtual IRenderVisual* getVisual(int id) = 0;

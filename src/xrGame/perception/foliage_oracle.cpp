@@ -11,10 +11,11 @@ namespace perception
 	static const u32 LEVEL_CHUNK_SHADERS = 2; // fsL_SHADERS, xrEngine/xrLevel.h
 	static const u32 MAX_FIELD_SLOTS = 8192 * 8192;
 
-	// Mean fraction of a vertical quad's area a horizontal ray sees, averaged over the instance's
-	// random yaw: <|cos|> over a full turn = 2/pi. Crossed pairs give the same figure, the two
-	// perpendicular halves averaging to it as well.
+	// Mean fraction of an upright face's area a horizontal ray sees, averaged over the instance's
+	// random yaw: <|cos|> over a full turn = 2/pi.
 	static const float FOLIAGE_G = 0.6366f;
+	static const u32 TUFT_STEPS_MIN = 2;
+	static const u32 TUFT_STEPS_MAX = 16;
 
 	foliage_oracle& foliage_oracle::instance()
 	{
@@ -48,9 +49,6 @@ namespace perception
 			m_leafiness[i] = 1.f;
 			m_gap[i] = 0.f;
 		}
-		m_max_slab_h = 0.f;
-		m_resolve_budget = 0;
-		m_cache_max = 0;
 		m_ready = false;
 	}
 
@@ -68,7 +66,7 @@ namespace perception
 				return;
 		}
 
-		build_foliage_profiles(dd, m_profiles);
+		build_foliage_profiles(dd, m_alpha_ref, m_profiles);
 
 		m_size_x = dd.size_x();
 		m_size_z = dd.size_z();
@@ -89,8 +87,9 @@ namespace perception
 
 			// The grid keeps one job now: bound the height band grass could occupy, so a ray that
 			// passes well above or below a slot is rejected before anything is resolved. The band is
-			// the slot's terrain relief plus the tallest model the slot references, because grass
-			// grows on the surface and the surface itself spans `relief` inside one 2 m slot.
+			// the slot's terrain relief plus the highest top any of its models reaches at the largest
+			// scale placement draws, because grass grows on the surface and the surface itself spans
+			// `relief` inside one 2 m slot. The detail height slider is applied at query time.
 			detail_slot_desc s_desc;
 			for (u32 i = 0; i < n; ++i)
 			{
@@ -101,11 +100,13 @@ namespace perception
 				{
 					if (DETAIL_ID_EMPTY == s_desc.id[m] || s_desc.id[m] >= m_profiles.size())
 						continue;
-					tallest = _max(tallest, m_profiles[s_desc.id[m]].height);
+					const foliage_model_profile& p = m_profiles[s_desc.id[m]];
+					const float top = p.density.valid() ? p.density.y_max : p.height;
+					tallest = _max(tallest, top * p.max_placement_scale);
 				}
 
 				cell& c = m_field[i];
-				c.tallest = u8(_min(iFloor(tallest * 10.f + 0.5f), 255));
+				c.tallest = u8(_min(iCeil(tallest * 10.f), 255));
 				c.slab_h = s_desc.y_height;
 				c.slab_base = s_desc.y_base;
 				c.pad = 0;
@@ -122,6 +123,7 @@ namespace perception
 
 		// Baseline for on_frame()'s change check - a fresh load already reflects current placement.
 		m_detail_gen = ::Render ? ::Render->detail_generation() : 0;
+		m_detail_height = ::Render ? ::Render->detail_height() : 1.f;
 
 		m_ready = true;
 
@@ -284,13 +286,17 @@ namespace perception
 		if (!c.tallest)
 			return false;
 
-		float h = float(c.slab_h) * 0.1f + float(c.tallest) * 0.1f;
-		if (m_max_slab_h > 0.f)
-			h = _min(h, m_max_slab_h);
-
 		y_lo = float(c.slab_base) * 0.2f - 200.f;
-		y_hi = y_lo + h;
+		y_hi = y_lo + band_height(c);
 		return true;
+	}
+
+	float foliage_oracle::band_height(const cell& c) const
+	{
+		float relief = float(c.slab_h) * 0.1f;
+		if (m_max_slab_h > 0.f)
+			relief = _min(relief, m_max_slab_h);
+		return relief + float(c.tallest) * 0.1f * m_detail_height;
 	}
 
 	void foliage_oracle::on_frame()
@@ -304,13 +310,15 @@ namespace perception
 
 		// The renderer rebuilds Details (and re-places every instance) when detail density/height or
 		// radius changes on vid_restart. Nothing else tells the oracle that happened, so a stale cache
-		// would keep serving pre-change instances for the rest of the session.
-		if (::Render && ::Render->detail_generation() != m_detail_gen)
+		// would keep serving pre-change instances for the rest of the session. Placement reads the
+		// height slider live, so a change to it alone re-scales every instance resolved from then on.
+		if (::Render && (::Render->detail_generation() != m_detail_gen || ::Render->detail_height() != m_detail_height))
 		{
 			const u32 dropped = u32(m_resolved.size());
 			m_resolved.clear();
 			m_instance_count = 0;
 			m_detail_gen = ::Render->detail_generation();
+			m_detail_height = ::Render->detail_height();
 			Msg("~ [perception] foliage: detail placement changed - dropped %u resolved slot(s)", dropped);
 		}
 
@@ -437,9 +445,7 @@ namespace perception
 
 			PDBG_ONLY(++m_stats.slots_walked);
 
-			float h = float(c.slab_h) * 0.1f + float(c.tallest) * 0.1f;
-			if (m_max_slab_h > 0.f)
-				h = _min(h, m_max_slab_h);
+			const float h = band_height(c);
 			const float y_lo = float(c.slab_base) * 0.2f - 200.f;
 
 			// The ray's height WHERE IT CROSSES THIS SLOT, not over its whole length. The difference
@@ -483,20 +489,25 @@ namespace perception
 		if (a < EPS_S)
 			return;
 
+		// Projected share of upright and of flat faces along this direction (TUFT-DENSITY-DESIGN 2.2).
+		const float k_up = FOLIAGE_G * _sqrt(a);
+		const float k_flat = _abs(dir.y);
+
 		for (u32 i = 0; i < r.items.size(); ++i)
 		{
 			const detail_instance& inst = r.items[i];
-			if (inst.model >= m_profiles.size())
+			if (inst.model >= m_profiles.size() || inst.scale <= 0.f)
 				continue;
-			const foliage_model_profile& p = m_profiles[inst.model];
-			if (p.radius <= 0.f || p.height <= 0.f || p.opacity <= 0.f)
+			const tuft_density& d = m_profiles[inst.model].density;
+			if (!d.valid())
 				continue;
 
-			const float rad = p.radius * inst.scale;
-			const float hgt = p.height * inst.scale;
+			const float s = inst.scale;
+			const float rad = d.radius * s;
+			const float y_lo = inst.pos.y + d.y_min * s;
+			const float y_hi = inst.pos.y + d.y_max * s;
 
-			// Ray versus vertical cylinder. Rotationally symmetric, which is why neither the random
-			// yaw nor the terrain-align rotation crosses the render boundary at all.
+			// Ray versus the model's bounding vertical cylinder around the instance origin.
 			const float dx = from.x - inst.pos.x;
 			const float dz = from.z - inst.pos.z;
 			const float b = 2.f * (dx * dir.x + dz * dir.z);
@@ -506,31 +517,44 @@ namespace perception
 				continue;
 
 			const float sq = _sqrt(disc);
-			float t0 = (-b - sq) / (2.f * a);
-			float t1 = (-b + sq) / (2.f * a);
-			if (t1 <= 0.f || t0 >= len)
+			float t0 = _max((-b - sq) / (2.f * a), 0.f);
+			float t1 = _min((-b + sq) / (2.f * a), len);
+
+			if (_abs(dir.y) > EPS_S)
+			{
+				float ta = (y_lo - from.y) / dir.y;
+				float tb = (y_hi - from.y) / dir.y;
+				if (ta > tb)
+					std::swap(ta, tb);
+				t0 = _max(t0, ta);
+				t1 = _min(t1, tb);
+			}
+			else if (from.y < y_lo || from.y > y_hi)
 				continue;
-			t0 = _max(t0, 0.f);
-			t1 = _min(t1, len);
 			if (t1 <= t0)
 				continue;
 
-			// Vertical overlap, against the tuft's own extent rather than the slot band.
-			const float y0 = from.y + dir.y * t0;
-			const float y1 = from.y + dir.y * t1;
-			if (_max(y0, y1) < inst.pos.y || _min(y0, y1) > inst.pos.y + hgt)
+			// Midpoint rule over the chord, about one step per radial bin.
+			const float chord_len = t1 - t0;
+			const u32 steps = _min(_max(u32(iCeil(chord_len * float(TUFT_NR) / rad)), TUFT_STEPS_MIN), TUFT_STEPS_MAX);
+			const float dt = chord_len / float(steps);
+			const float inv_s = 1.f / s;
+
+			float tau = 0.f;
+			for (u32 k = 0; k < steps; ++k)
+			{
+				Fvector q;
+				q.mad(from, dir, t0 + (float(k) + .5f) * dt);
+				q.sub(inst.pos);
+				q.mul(inv_s);
+				tau += d.extinction(q, k_up, k_flat);
+			}
+			// World density is the model-space density over the scale: area goes as s^2, volume as s^3.
+			tau *= dt * inv_s;
+			if (tau <= 0.f)
 				continue;
 
-			// Fraction of this tuft's cross-section that is actually opaque: mean projected quad area
-			// over the instance's yaw, spread across the footprint the cylinder presents.
-			const float projected = p.area * inst.scale * inst.scale * FOLIAGE_G;
-			float blocked = projected / (hgt * 2.f * rad);
-			clamp(blocked, 0.f, 1.f);
-
-			float t = 1.f - p.opacity * blocked;
-			clamp(t, 1e-4f, 1.f);
-
-			out.tau += -logf(t);
+			out.tau += tau;
 			++out.crossings;
 
 			if (chords)
@@ -538,7 +562,16 @@ namespace perception
 				chord ch;
 				ch.enter.mad(from, dir, t0);
 				ch.exit.mad(from, dir, t1);
-				ch.blocked = p.opacity * blocked;
+				ch.blocked = 1.f - expf(-tau);
+				ch.origin = inst.pos;
+				ch.radius = rad;
+				ch.y_lo = y_lo;
+				ch.y_hi = y_hi;
+				ch.core_radius = d.r90 * s;
+				ch.core_top = inst.pos.y + d.top95 * s;
+				ch.scale = s;
+				ch.tau = tau;
+				ch.model = inst.model;
 				chords->push_back(ch);
 			}
 		}

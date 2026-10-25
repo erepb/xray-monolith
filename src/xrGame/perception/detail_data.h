@@ -11,6 +11,8 @@ namespace perception
 	{
 		uv_rect uv;
 		float area; // model-space triangle area, used to weight the per-face mean
+		Fvector p[3]; // model space
+		float u[3], v[3];
 	};
 
 	struct detail_model_desc
@@ -19,6 +21,7 @@ namespace perception
 		shared_str texture;
 		Fbox bbox;
 		uv_rect uv; // union of all faces; coarse fallback when per-face weighting yields nothing
+		float min_scale, max_scale;
 		u32 verts;
 		u32 tris;
 		float area; // summed triangle area in model space

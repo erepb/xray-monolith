@@ -15,6 +15,7 @@ namespace perception
 		max_slab_h = 4.00f;
 		resolve_budget = 64;
 		resolve_cache_slots = 8192;
+		alpha_ref = 200.f / 255.f;
 	}
 
 	void occlusion_model::load()
@@ -39,6 +40,7 @@ namespace perception
 			if (ltx->line_exist(CFG_SECTION, "resolve_budget")) resolve_budget = ltx->r_u32(CFG_SECTION, "resolve_budget");
 			if (ltx->line_exist(CFG_SECTION, "resolve_cache_slots"))
 				resolve_cache_slots = ltx->r_u32(CFG_SECTION, "resolve_cache_slots");
+			if (ltx->line_exist(CFG_SECTION, "alpha_ref")) alpha_ref = ltx->r_float(CFG_SECTION, "alpha_ref");
 		}
 		xr_delete(ltx);
 
@@ -51,9 +53,10 @@ namespace perception
 		// one long ray crosses would evict its own working set.
 		clamp(resolve_budget, 1u, 4096u);
 		clamp(resolve_cache_slots, 1024u, 262144u);
+		clamp(alpha_ref, 0.f, 1.f);
 
-		Msg("~ [perception] occlusion model: foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f extend=%.2f max_slab=%.2f",
-		    foliage_k, canopy_k, atmosphere_k, ray_extend, max_slab_h);
+		Msg("~ [perception] occlusion model: foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f extend=%.2f max_slab=%.2f alpha_ref=%.3f",
+		    foliage_k, canopy_k, atmosphere_k, ray_extend, max_slab_h, alpha_ref);
 		Msg("~ [perception]   grass resolve budget %u slot(s)/frame, cache %u slot(s)", resolve_budget,
 		    resolve_cache_slots);
 	}

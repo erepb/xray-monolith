@@ -47,7 +47,7 @@ namespace perception
 	class trace_listener
 	{
 	public:
-		virtual void on_trace(const occlusion_result& r) = 0;
+		virtual void on_trace(const segment& seg, u16 bone, const occlusion_result& r) = 0;
 	};
 
 	// Per-observer. Each call traces k body points of one target, rotating over the target's pickable

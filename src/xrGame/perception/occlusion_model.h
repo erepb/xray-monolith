@@ -20,6 +20,7 @@ namespace perception
 		float max_slab_h;  // metres; clamps the 11-22 m slab outliers Stage 1 measured
 		u32 resolve_budget;      // grass slots resolved per frame, engine-wide
 		u32 resolve_cache_slots; // resolved grass slots retained
+		float alpha_ref;         // 0..1, the detail shader's alpha-test cutoff (def_aref)
 
 		occlusion_model() { set_defaults(); }
 

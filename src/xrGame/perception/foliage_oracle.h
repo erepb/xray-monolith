@@ -64,8 +64,8 @@ namespace perception
 		// Per-frame resolve budget bookkeeping. Called from the level tick.
 		void on_frame();
 
-		// Slabs run to 11-22 m on some levels; this bounds the band used for the cheap pre-reject
-		// only - it never scales an instance. 0 disables.
+		// Slabs run to 11-22 m on some levels; this bounds the terrain-relief part of the band used for
+		// the cheap pre-reject only - it never scales an instance or cuts the grass height. 0 disables.
 		void set_max_slab_h(float h) { m_max_slab_h = h; }
 
 		// Slots resolved per frame engine-wide, and resolved slots retained.
@@ -74,6 +74,9 @@ namespace perception
 			m_resolve_budget = budget;
 			m_cache_max = cache_slots;
 		}
+
+		// The detail shader's alpha-test cutoff, 0..1. Read by the next on_level_load's bake.
+		void set_alpha_ref(float a) { m_alpha_ref = a; }
 
 		// Vertical band grass could occupy at a world XZ, from the baked slot bounds plus the tallest
 		// model the slot references. Cheap reject before any slot is resolved. false = no foliage ids.
@@ -125,7 +128,7 @@ namespace perception
 		// that decide the band's top. 4 bytes per 2 m slot, level-wide.
 		struct cell
 		{
-			u8 tallest;         // 10 cm units, tallest model this slot references; 0 = no foliage
+			u8 tallest;         // 10 cm units, highest model top at the largest placement scale, before the height slider; 0 = no foliage
 			u8 slab_h;          // 10 cm units, terrain relief within the slot
 			u16 slab_base : 12; // 20 cm units, world = base*0.2 - 200
 			u16 pad : 4;
@@ -151,6 +154,9 @@ namespace perception
 
 		void evict_if_needed() const;
 
+		// Metres above the slot's base that its grass can reach.
+		float band_height(const cell& c) const;
+
 		xr_vector<cell> m_field;
 		xr_vector<foliage_model_profile> m_profiles;
 		u32 m_size_x = 0;
@@ -162,6 +168,7 @@ namespace perception
 		float m_max_slab_h = 0.f;
 		u32 m_resolve_budget = 0;
 		u32 m_cache_max = 0;
+		float m_alpha_ref = 200.f / 255.f;
 		bool m_ready = false;
 		bool m_renderer_places = false;
 
@@ -170,6 +177,7 @@ namespace perception
 		mutable u32 m_budget_left = 0;
 		mutable u32 m_frame = 0;
 		mutable u32 m_detail_gen = 0; // last IRender_interface::detail_generation() seen, see on_frame()
+		mutable float m_detail_height = 1.f; // last IRender_interface::detail_height() seen
 #ifdef PERCEPTION_DEBUG
 		mutable stats m_stats;
 #endif

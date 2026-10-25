@@ -343,6 +343,7 @@ public:
 	virtual const atmo_lut* atmosphere_lut();
 	virtual bool resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out);
 	virtual u32 detail_generation() { return m_detail_generation; }
+	virtual float detail_height();
 
 	virtual ref_shader getShader(int id);
 	virtual IRender_Sector* getSector(int id);

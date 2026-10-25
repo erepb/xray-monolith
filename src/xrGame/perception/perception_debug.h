@@ -107,6 +107,7 @@ namespace perception
 
 		// Cvars, owned here and written by the console commands.
 		extern int g_draw;          // perception_dbg_draw
+		extern int g_draw_tufts;    // perception_dbg_tufts
 		extern int g_log;           // perception_dbg_log
 		extern int g_log_interval;  // perception_dbg_log_interval, ms
 		extern int g_explain;       // perception_explain, live view toggle

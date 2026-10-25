@@ -40,4 +40,23 @@ namespace perception
 	// high) - which is what decides whether a ray or a target sample finds a clear path.
 	bool dds_mean_alpha(const u8* data, u32 size, const uv_rect& uv, float& out_alpha,
 	                    u32 min_res = 64, float* out_gap = 0);
+
+	// Point lookups of mip-0 alpha. Points into the caller's buffer, which must outlive the view.
+	class dds_alpha_view
+	{
+	public:
+		dds_alpha_view() : m_lvl(0) {}
+
+		bool open(const u8* data, u32 size);
+		bool valid() const { return 0 != m_lvl; }
+		u32 width() const { return m_info.width; }
+		u32 height() const { return m_info.height; }
+
+		// 0..255 at the texel containing (u, v); UVs wrap.
+		u32 alpha(float u, float v) const;
+
+	private:
+		dds_info m_info;
+		const u8* m_lvl;
+	};
 }

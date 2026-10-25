@@ -425,6 +425,7 @@ namespace perception
 			CMD4(CCC_Float, "perception_atmosphere_k", &mdl.atmosphere_k, 0.f, 100.f);
 
 			CMD4(CCC_Integer, "perception_dbg_draw", &g_draw, 0, 1);
+			CMD4(CCC_Integer, "perception_dbg_tufts", &g_draw_tufts, 0, 1);
 			CMD4(CCC_Integer, "perception_dbg_log", &g_log, 0, 1);
 			CMD4(CCC_Integer, "perception_dbg_log_interval", &g_log_interval, 50, 60000);
 		}

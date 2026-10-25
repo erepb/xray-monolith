@@ -14,6 +14,7 @@
 #include "../visual_memory_manager.h"
 #include "../../xrEngine/GameMtlLib.h"
 #include "../../xrEngine/cl_intersect.h"
+#include "../../Include/xrRender/Kinematics.h"
 
 namespace perception
 {
@@ -139,9 +140,10 @@ namespace perception
 			xr_vector<debug::point_record> hits;
 			debug::v1_point_record v1_point;
 			bool has_v1_point;
+			u32 next_ray_log;
 
 			observer_entry(const CCustomMonster& m, u32 now)
-				: id(m.ID()), object(&m), last_tick(now), sampler(s32(m.ID())), has_v1_point(false)
+				: id(m.ID()), object(&m), last_tick(now), sampler(s32(m.ID())), has_v1_point(false), next_ray_log(0)
 			{
 			}
 		};
@@ -359,16 +361,85 @@ namespace perception
 
 		// ---- sampler --------------------------------------------------------------------------
 
+		static const u32 RAY_LOG_ITEMS = 32; // per list, per ray
+
+		static float along(const segment& seg, const Fvector& p)
+		{
+			Fvector d;
+			d.sub(p, seg.from);
+			return d.dotproduct(seg.dir);
+		}
+
+		static void log_chords(LPCSTR label, const segment& seg, const xr_vector<veg_chord>& chords)
+		{
+			for (u32 i = 0; i < chords.size() && i < RAY_LOG_ITEMS; ++i)
+			{
+				const veg_chord& c = chords[i];
+				if (c.radius > 0.f && c.y_hi > c.y_lo)
+				{
+					// Closest approach of the ray's horizontal line to the tuft's axis.
+					const float dx = c.origin.x - seg.from.x, dz = c.origin.z - seg.from.z;
+					const float m2 = _sqrt(seg.dir.x * seg.dir.x + seg.dir.z * seg.dir.z);
+					const float off = m2 > EPS_S ? _abs(dx * seg.dir.z - dz * seg.dir.x) / m2 : _sqrt(dx * dx + dz * dz);
+					const float h = c.y_hi - c.y_lo;
+					Msg("~     %s %6.2f..%6.2f m  y %7.2f..%7.2f  tau %.3f  model %u x%.2f  R %.2f core %.2f  axis at %3.0f %% of R  ray at %3.0f..%3.0f %% of h (core top %3.0f %%)",
+					    label, along(seg, c.enter), along(seg, c.exit), c.enter.y, c.exit.y, c.tau, u32(c.model),
+					    c.scale, c.radius, c.core_radius, 100.f * off / c.radius, 100.f * (c.enter.y - c.y_lo) / h,
+					    100.f * (c.exit.y - c.y_lo) / h, 100.f * (c.core_top - c.y_lo) / h);
+				}
+				else
+					Msg("~     %s %6.2f..%6.2f m  y %7.2f..%7.2f  blocked %.3f", label, along(seg, c.enter),
+					    along(seg, c.exit), c.enter.y, c.exit.y, c.blocked);
+			}
+			if (chords.size() > RAY_LOG_ITEMS)
+				Msg("~     %s ... %u more", label, u32(chords.size() - RAY_LOG_ITEMS));
+		}
+
+		// Needs occlusion_query::record set for the trace, or the chord and hit lists are empty.
+		static void log_ray(const CCustomMonster& m, const CObject& target, const segment& seg, u16 bone,
+		                    const occlusion_result& r)
+		{
+			IKinematics* K = smart_cast<IKinematics*>(target.Visual());
+			string256 deg;
+			Msg("~ [perception] ray %s -> %s  %s  len %.2f  y %.2f -> %.2f  T %.3f  v1 %.3f  dom %s %s",
+			    m.cName().c_str(), target.cName().c_str(), K ? K->LL_BoneName_dbg(bone) : "?", seg.length,
+			    seg.from.y, seg.to.y, r.transmittance, r.v1_transmittance(), occluder_class_name(r.dominant),
+			    r.dominant_material.size() ? r.dominant_material.c_str() : "-");
+			Msg("~   hard %.3f  soft %.3f  creature %.3f  foliage %.3f  canopy %.3f  atmo %.3f  self %u @ %.2f  degraded %s",
+			    r.channel[occ_hard], r.channel[occ_soft], r.channel[occ_creature], r.channel[occ_foliage],
+			    r.channel[occ_canopy], r.channel[occ_atmosphere], u32(r.self_hits), r.self_hits ? r.self_range : 0.f,
+			    debug::describe_degraded(r.degraded, deg));
+
+			const occlusion_query& q = occlusion_query::instance();
+			Msg("~   grass tau %.3f  %u tuft(s)  %u slot(s) unresolved  |  canopy tau %.3f  %u cell(s)",
+			    r.foliage_tau, u32(q.last_chords.size()), u32(r.foliage_unresolved), r.canopy_tau,
+			    u32(r.canopy_cells));
+			log_chords("tuft", seg, q.last_chords);
+			log_chords("leaf", seg, q.last_canopy);
+			for (u32 i = 0; i < q.last_hits.size() && i < RAY_LOG_ITEMS; ++i)
+			{
+				const hit_mark& h = q.last_hits[i];
+				Msg("~     hit  %6.2f m  y %7.2f  %s  t %.3f", along(seg, h.pos), h.pos.y, occluder_class_name(h.cls),
+				    h.t);
+			}
+			if (q.last_hits.size() > RAY_LOG_ITEMS)
+				Msg("~     hit  ... %u more", u32(q.last_hits.size() - RAY_LOG_ITEMS));
+		}
+
 		class listener : public trace_listener
 		{
 		public:
 			float threshold;
 			observer_entry* draw;
+			const CCustomMonster* log_observer; // null: rays are not logged
+			const CObject* log_target;
 
-			virtual void on_trace(const occlusion_result& r)
+			virtual void on_trace(const segment& seg, u16 bone, const occlusion_result& r)
 			{
 				++s_stats.sampler_rays;
 				debug::g_cache_split.note(r.transmittance < threshold, r);
+				if (log_observer)
+					log_ray(*log_observer, *log_target, seg, bone, r);
 				if (!draw)
 					return;
 
@@ -489,7 +560,12 @@ namespace perception
 				listener l;
 				l.threshold = thr;
 				const bool draw = shown && debug::g_draw;
+				const bool log_rays = shown && debug::g_log && now >= e.next_ray_log;
 				l.draw = draw ? &e : 0;
+				l.log_observer = log_rays ? &m : 0;
+				l.log_target = target;
+				if (log_rays)
+					e.next_ray_log = now + u32(_max(debug::g_log_interval, 50));
 				if (shown)
 				{
 					e.chords.clear();
@@ -500,7 +576,7 @@ namespace perception
 				}
 
 				const bool was_recording = q.record;
-				q.record = draw;
+				q.record = draw || log_rays;
 				CTimer t;
 				t.Start();
 				e.sampler.sample(&m, eye, target, s_points, now, &l);
