@@ -8,6 +8,7 @@
 #include "perception/foliage_oracle.h"
 #include "perception/canopy_oracle.h"
 #include "perception/occlusion_query.h"
+#include "perception/atmosphere.h"
 #include "perception/perception_debug.h"
 #include "HUDManager.h"
 #include "xrServer.h"
@@ -1066,6 +1067,7 @@ void CLevel::OnFrame()
 	// Refills the grass resolve budget. Must run before any trace this frame, so it sits with the
 	// other perception per-frame work rather than inside the oracle's own lazy paths.
 	perception::foliage_oracle::instance().on_frame();
+	perception::atmosphere::instance().on_frame();
 	perception::debug::on_frame();
 	// Draw client/server stats
 	if (!g_dedicated_server && psDeviceFlags.test(rsStatistic))

@@ -196,6 +196,7 @@ static class cl_meatchunks_stuff : public R_constant_setup
 
 extern ENGINE_API BOOL r2_sun_static;
 extern ENGINE_API BOOL r2_advanced_pp; //	advanced post process and effects
+extern Fvector4 ps_ssfx_fog;
 //////////////////////////////////////////////////////////////////////////
 // Just two static storage
 void CRender::create()
@@ -533,7 +534,12 @@ void CRender::create()
 
 	Target = xr_new<CRenderTarget>(); // Main target
 	m_atmo_lut.set_analytic();
-	m_atmo_acquired = false;
+	m_atmo_y_lo = m_atmo_y_hi = 0.f;
+	m_atmo_has_range = false;
+	m_atmo_dirty = false;
+	m_atmo_ssfx_fog = ps_ssfx_fog;
+	m_atmo_generation = 0;
+	m_atmo_next_try = 0;
 
 	Models = xr_new<CModelPool>();
 	PSLibrary.OnCreate();
@@ -636,7 +642,7 @@ void CRender::reset_end()
 
 	Target = xr_new<CRenderTarget>();
 	// Shaders and RTs were rebuilt - the measurement no longer describes them.
-	m_atmo_acquired = false;
+	m_atmo_dirty = true;
 
 	//AVO: let's reload details while changed details options on vid_restart
 	if (b_loaded && ((dm_current_size != dm_size) || (ps_r__Detail_density != ps_current_detail_density) || (
@@ -2227,28 +2233,49 @@ float CRender::detail_height()
 	return ps_current_detail_height;
 }
 
-const atmo_lut* CRender::atmosphere_lut()
+const atmo_lut* CRender::atmosphere_lut(float y_lo, float y_hi)
 {
-	if (m_atmo_acquired)
-		return &m_atmo_lut;
+	m_atmo_y_lo = y_lo;
+	m_atmo_y_hi = y_hi;
+	m_atmo_has_range = true;
+	atmosphere_measure();
+	return &m_atmo_lut;
+}
 
-	// Latch on SUCCESS only. The consumer asks once per level load, so a failed probe retries on the
-	// next level instead of poisoning the session - which is what happened when the first attempt
-	// landed on fake_start, the menu backdrop, and every later level silently inherited its failure.
+// A failed probe leaves the analytic curve and is retried at the next level load or setting change.
+bool CRender::atmosphere_measure()
+{
 	m_atmo_lut.set_analytic();
+	m_atmo_dirty = false;
+	m_atmo_ssfx_fog = ps_ssfx_fog;
+	++m_atmo_generation;
 
 	if (!ps_atmo_probe)
 	{
 		Msg("~ [perception] atmo probe disabled (perception_atmo_probe 0), using analytic curve");
-		return &m_atmo_lut;
+		return false;
 	}
 	if (!Target)
-		return &m_atmo_lut;
+		return false;
 
-	if (Target->probe_atmosphere(m_atmo_lut))
-		m_atmo_acquired = true;
-	else
-		Msg("~ [perception] atmo probe unavailable, using analytic curve (will retry on next level)");
+	if (Target->probe_atmosphere(m_atmo_lut, m_atmo_y_lo, m_atmo_y_hi))
+		return true;
 
-	return &m_atmo_lut;
+	Msg("~ [perception] atmo probe unavailable, using analytic curve (will retry on next level)");
+	return false;
+}
+
+// Render thread, before any target is bound this frame (ATMOSPHERE-DESIGN 6.2b).
+void CRender::atmosphere_remeasure_if_stale()
+{
+	if (!m_atmo_has_range || Device.dwTimeGlobal < m_atmo_next_try)
+		return;
+	const Fvector4& f = ps_ssfx_fog;
+	const Fvector4& g = m_atmo_ssfx_fog;
+	if (!m_atmo_dirty && f.x == g.x && f.y == g.y && f.z == g.z && f.w == g.w)
+		return;
+
+	m_atmo_next_try = Device.dwTimeGlobal + 1000;
+	Msg("~ [perception] atmo probe: re-measuring (%s)", m_atmo_dirty ? "device reset" : "ssfx_fog changed");
+	atmosphere_measure();
 }

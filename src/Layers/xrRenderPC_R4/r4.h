@@ -330,17 +330,28 @@ public:
 		DWORD Flags,
 		void*& result);
 
-	// Atmospheric probe state; dropped on reset_end so a vid_restart re-measures.
+	// Atmospheric probe state (ATMOSPHERE-DESIGN 6.2b). The range is the last level's; dirty asks the
+	// next frame to re-measure over it, as do changes to ps_ssfx_fog.
 	atmo_lut m_atmo_lut;
-	bool m_atmo_acquired;
+	float m_atmo_y_lo, m_atmo_y_hi;
+	bool m_atmo_has_range;
+	bool m_atmo_dirty;
+	Fvector4 m_atmo_ssfx_fog;
+	u32 m_atmo_generation;
+	u32 m_atmo_next_try;
+
+	bool atmosphere_measure();
+	void atmosphere_remeasure_if_stale();
 
 	// Information
 	virtual void Statistics(CGameFont* F);
 	virtual LPCSTR getShaderPath() { return "r3\\"; }
 
-	// Measured fog curve. Acquired lazily on first request - CurrentEnv does not exist until
-	// CEnvironment::load, and the probe draws, so it cannot run at renderer construction.
-	virtual const atmo_lut* atmosphere_lut();
+	// Measured fog curve. Requested at level load - CurrentEnv does not exist until CEnvironment::load,
+	// and the probe draws, so it cannot run at renderer construction.
+	virtual const atmo_lut* atmosphere_lut(float y_lo, float y_hi);
+	virtual const atmo_lut* atmosphere_lut_current() { return &m_atmo_lut; }
+	virtual u32 atmosphere_generation() { return m_atmo_generation; }
 	virtual bool resolve_detail_slot(int sx, int sz, xr_vector<detail_instance>& out);
 	virtual u32 detail_generation() { return m_detail_generation; }
 	virtual float detail_height();

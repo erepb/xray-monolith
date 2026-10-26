@@ -7,8 +7,8 @@ namespace perception
 {
 	// Distance-driven visibility, so NPCs inherit the limit fog already imposes on the player.
 	//
-	// Holds a private copy of the curve the renderer measured. The AI path never touches IRender
-	// after that one fetch.
+	// Holds a private copy of the curve the renderer measured. The AI path never touches IRender; the
+	// copy is refreshed from the main thread when the renderer re-measures (ATMOSPHERE-DESIGN 6.2b).
 	class atmosphere
 	{
 	public:
@@ -16,9 +16,11 @@ namespace perception
 
 		void on_level_load();
 		void on_level_unload();
+		void on_frame(); // main thread
 
 		bool ready() const { return m_ready; }
-		bool is_analytic() const { return m_lut.analytic; }
+		bool is_analytic() const { return lut().analytic; }
+		const atmo_lut& lut() const { return m_lut[m_active]; }
 
 		// The renderer probes, but the probe produced no curve. A renderer that does not probe at all
 		// is not this case.
@@ -46,7 +48,12 @@ namespace perception
 		static float normalized_distance(float length);
 
 	private:
-		atmo_lut m_lut;
+		void adopt(const atmo_lut* src);
+
+		// Two copies so AI vision on the parallel thread never reads one being overwritten.
+		atmo_lut m_lut[2];
+		volatile u32 m_active = 0;
+		u32 m_generation = 0;
 		bool m_ready = false;
 		bool m_unmeasured = false;
 	};

@@ -197,6 +197,12 @@ namespace perception
 			    env ? env->fog_near : 0.f, env ? env->fog_far : 0.f,
 			    atmo.is_analytic() ? "analytic" : "measured",
 			    atmo.ready() ? "" : " (pending)");
+			const atmo_lut& lut = atmo.lut();
+			if (lut.ny > 1)
+				Msg("~   fog    height y=%.1f (lower end), %u rows over %.1f..%.1f m",
+				    atmosphere::resolve_height(seg.from.y, seg.to.y), u32(lut.ny), lut.y_min, lut.y_max);
+			else
+				Msg("~   fog    no height dependence measured");
 		}
 
 		static void report_cache()

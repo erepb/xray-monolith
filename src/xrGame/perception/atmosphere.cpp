@@ -2,6 +2,7 @@
 #include "atmosphere.h"
 #include "perception_debug.h"
 #include "../../xrEngine/IGame_Persistent.h"   // pulls Environment.h
+#include "../Level.h"
 
 namespace perception
 {
@@ -13,34 +14,59 @@ namespace perception
 
 	void atmosphere::on_level_unload()
 	{
-		m_lut.set_analytic();
+		m_lut[0].set_analytic();
+		m_lut[1].set_analytic();
+		m_active = 0;
 		m_ready = false;
 		m_unmeasured = false;
 	}
 
+	void atmosphere::adopt(const atmo_lut* src)
+	{
+		const u32 next = 1 - m_active;
+		if (src)
+			m_lut[next] = *src;
+		else
+			m_lut[next].set_analytic();
+		m_active = next;
+		m_unmeasured = src && m_lut[next].analytic;
+	}
+
 	void atmosphere::on_level_load()
 	{
-		m_lut.set_analytic();
 		m_ready = true;
 
-		// One fetch, then a private copy. Null is a supported answer, not an error: R1/R2/R3 do not
-		// probe, and a failed R4 probe reports itself and hands back the analytic curve.
-		const atmo_lut* src = ::Render ? ::Render->atmosphere_lut() : 0;
-		if (src)
-			m_lut = *src;
-		m_unmeasured = src && m_lut.analytic;
+		// The height axis spans the level's static geometry (ATMOSPHERE-DESIGN 5.2.1).
+		const Fbox& bb = Level().ObjectSpace.GetBoundingVolume();
+
+		// Null is a supported answer, not an error: R1/R2/R3 do not probe, and a failed R4 probe
+		// reports itself and hands back the analytic curve.
+		adopt(::Render ? ::Render->atmosphere_lut(bb.min.y, bb.max.y) : 0);
+		m_generation = ::Render ? ::Render->atmosphere_generation() : 0;
+		const atmo_lut& m = lut();
 
 		// Name the reason, not just the outcome. "analytic curve" alone reads identically whether the
 		// renderer cannot probe, the probe was switched off, or it ran and produced nothing - and the
 		// three call for completely different responses from whoever is reading the log.
-		LPCSTR why = !src ? "analytic curve (this renderer does not probe)"
-		                  : m_lut.analytic ? "analytic curve (probe produced none - see the line above)"
-		                                   : "measured curve";
-		Msg("~ [perception] atmosphere: %s, %ux%u", why, m_lut.nx, m_lut.ny);
-		if (!m_lut.analytic)
+		LPCSTR why = !::Render || !m_generation ? "analytic curve (this renderer does not probe)"
+		             : m.analytic ? "analytic curve (probe produced none - see the line above)"
+		                          : "measured curve";
+		Msg("~ [perception] atmosphere: %s, %ux%u", why, m.nx, m.ny);
+		if (!m.analytic)
 			Msg("~ [perception]   crc 0x%08x defines 0x%08x, channel disagreement %.4f, degenerate %u",
-			    m_lut.source_crc, m_lut.defines_hash, m_lut.max_channel_disagreement,
-			    m_lut.degenerate_cells);
+			    m.source_crc, m.defines_hash, m.max_channel_disagreement, m.degenerate_cells);
+	}
+
+	void atmosphere::on_frame()
+	{
+		if (!m_ready || !::Render)
+			return;
+		const u32 gen = ::Render->atmosphere_generation();
+		if (gen == m_generation)
+			return;
+		m_generation = gen;
+		adopt(::Render->atmosphere_lut_current());
+		Msg("~ [perception] atmosphere: re-measured curve adopted, %ux%u", lut().nx, lut().ny);
 	}
 
 	float atmosphere::normalized_distance(float length)
@@ -71,6 +97,6 @@ namespace perception
 		if (!m_ready || length <= 0.f)
 			return 1.f;
 
-		return m_lut.sample(normalized_distance(length), height);
+		return lut().sample(normalized_distance(length), height);
 	}
 }

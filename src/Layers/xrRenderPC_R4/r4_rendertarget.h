@@ -503,9 +503,10 @@ public:
 	void phase_combine_volumetric();
 
 	// Atmospheric probe (ATMOSPHERE-DESIGN 5). Invokes s_combine over a synthetic G-buffer with
-	// fog_params driven to known endpoints, and solves for the shader's own fog blend factor.
-	// Implemented in r4_rendertarget_atmo_probe.cpp. Returns false if the result was degenerate.
-	bool probe_atmosphere(atmo_lut& out);
+	// fog_params driven to known endpoints and world height pinned per row over [y_lo, y_hi], and
+	// solves for the shader's own fog blend factor. Implemented in r4_rendertarget_atmo_probe.cpp.
+	// Returns false if the result was degenerate.
+	bool probe_atmosphere(atmo_lut& out, float y_lo, float y_hi);
 	void phase_pp();
 
 	virtual void set_blur(float f) { param_blur = f; }

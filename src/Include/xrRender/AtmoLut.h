@@ -3,8 +3,8 @@
 // Measured atmospheric transmittance curve.
 //
 // Produced by the renderer (which is the only thing that can invoke the fog shader) and consumed by
-// the AI, which must never touch the renderer at runtime. It is handed across that boundary exactly
-// once per level load as plain data - the same shape as the Stage 1 foliage bake.
+// the AI, which must never touch the renderer at runtime. It is handed across that boundary as plain
+// data at level load, and again whenever the renderer re-measures (ATMOSPHERE-DESIGN 6.2b).
 //
 // The distance axis is NORMALIZED: the shader receives fog_params, already derived from
 // fog_near/fog_far (Environment_misc.cpp:465-466), so every weather-dependent term enters there and
@@ -12,7 +12,7 @@
 
 struct atmo_lut
 {
-	enum { MAX_X = 64, MAX_Y = 32 };
+	enum { MAX_X = 64, MAX_Y = 64 };
 
 	u16 nx, ny;
 	float y_min, y_max;             // world-Y range spanned by the height axis

@@ -22,21 +22,20 @@
 // blend controlled by fog_params, which is the engine's constant-buffer contract rather than any
 // shader's design.
 //
-// What the ratio CANNOT see: a factor the shader multiplies in outside fog_params. GAMMA's live
-// combine_1.ps builds fog = fogD(fog_params) * saturate(exp(-worldY*0.002)); pass C forces fogD to 1
-// rather than fog, so the height factor appears in both numerator and denominator and divides out.
-// The solve returns fogD exactly - correct for distance, blind to height. That is not a defect that
-// can be engineered away here: fog_params is derived from fog_near/fog_far, which are weather
-// properties with no height input, so no height term can ever reach the shader through this lever.
-// It costs little in practice - the factor is 1 at ground level, where observers are - and the
-// height axis is collapsed to one row rather than filled with nine identical ones.
+// Height: every row pins the world height the shader reads through m_inv_V (ATMOSPHERE-DESIGN 5.2.1).
+// A height term added to the fog factor, like Screen Space Shaders' height fog, survives the solve and
+// shows as rows that differ. A pure multiplier on the fog factor divides out, and every row comes back
+// the same; the axis is then collapsed to one row.
 
 namespace
 {
 	const u16 PROBE_NX = 33;          // normalized distance samples
-	const u16 PROBE_NY = 1;           // height rows; see the header for why more would measure nothing
-	const float PROBE_Y_MIN = -1000.f; // with ny == 1 atmo_lut::sample ignores the height axis
-	const float PROBE_Y_MAX = 1000.f;
+	const u16 PROBE_NY = atmo_lut::MAX_Y; // height rows over the requested range
+	// With one row atmo_lut::sample ignores the height axis.
+	const float FLAT_Y_MIN = -1000.f;
+	const float FLAT_Y_MAX = 1000.f;
+	// Rows closer than this to the first everywhere mean height has no measurable effect.
+	const float ROW_EPS = 1e-3f;
 	// View depth written into the synthetic G-buffer. Any non-degenerate value does: the fog
 	// coordinate is driven through fog_params, so nothing in the measurement depends on this.
 	const float PROBE_DEPTH = 500.f;
@@ -277,15 +276,17 @@ namespace
 	// Frozen, deliberately non-degenerate constants. Anything set here cancels out of the solve, so
 	// it only has to be the SAME across all three passes - but it must not be zero, or the pre-fog
 	// colour and the fog colour both collapse to black and the division becomes 0/0.
-	void probe_set_frozen_constants()
+	void probe_set_frozen_constants(float world_y)
 	{
-		Fmatrix eye;
-		eye.identity();
-		// Both spellings of view->world: vanilla combine uses neither, GAMMA's uses m_inv_V. Frozen
-		// rather than correct - whatever they feed cancels, but leftovers from the last real frame
-		// would not be reproducible.
-		RCache.set_c("m_v2w", eye);
-		RCache.set_c("m_inv_V", eye);
+		// Both spellings of view->world: vanilla combine uses neither, GAMMA's uses m_inv_V. Identity
+		// except that world Y is world_y for every view-space point: shader row y is _12 _22 _32 _42
+		// (r_constants_cache.h:59).
+		Fmatrix v2w;
+		v2w.identity();
+		v2w._12 = v2w._22 = v2w._32 = 0.f;
+		v2w._42 = world_y;
+		RCache.set_c("m_v2w", v2w);
+		RCache.set_c("m_inv_V", v2w);
 		RCache.set_c("L_ambient", 0.35f, 0.35f, 0.35f, 1.f);
 		RCache.set_c("Ldynamic_color", 0.80f, 0.80f, 0.80f, 1.f);
 		RCache.set_c("Ldynamic_dir", 0.f, -1.f, 0.f, 0.f);
@@ -296,7 +297,7 @@ namespace
 	}
 }
 
-bool CRenderTarget::probe_atmosphere(atmo_lut& out)
+bool CRenderTarget::probe_atmosphere(atmo_lut& out, float y_lo, float y_hi)
 {
 	out.set_analytic();
 
@@ -308,8 +309,9 @@ bool CRenderTarget::probe_atmosphere(atmo_lut& out)
 	if (!s_combine || !s_combine->E[0] || !g_combine)
 		return false;
 
-	const u16 nx = PROBE_NX, ny = PROBE_NY;
+	const u16 nx = PROBE_NX, ny = y_hi > y_lo ? PROBE_NY : 1;
 	const u32 cells = u32(nx) * u32(ny);
+	const float y_step = ny > 1 ? (y_hi - y_lo) / float(ny - 1) : 0.f;
 
 
 	// The probe does not fabricate a distance. It fabricates the shader's own fog COORDINATE.
@@ -390,14 +392,16 @@ bool CRenderTarget::probe_atmosphere(atmo_lut& out)
 		const float sentinel[4] = { PROBE_SENTINEL, PROBE_SENTINEL, PROBE_SENTINEL, PROBE_SENTINEL };
 		HW.pContext->ClearRenderTargetView(r.rt_out->pRT, sentinel);
 
-		// One draw per column, because fog_params is a constant and each column needs its own value.
-		// Cheap enough not to matter: nx single-pixel draws against one readback per pass.
-		for (u16 i = 0; i < nx && ok; ++i)
+		// One draw per cell, because fog_params and the height are constants and each cell needs its
+		// own pair. Cheap enough not to matter: nx*ny single-pixel draws against one readback per pass.
+		for (u32 cell = 0; cell < cells && ok; ++cell)
 		{
+			const u16 i = u16(cell % nx), j = u16(cell / nx);
+
 			// u_setrt records the size in dwWidth/dwHeight but never sends a viewport to D3D -
 			// phase_bloom sets and restores one by hand around its small targets (phase_bloom.cpp:394,
-			// 547). Here it also does the column selection.
-			D3D_VIEWPORT vp = { float(i), 0.f, 1.f, float(ny), 0.f, 1.f };
+			// 547). Here it also does the cell selection.
+			D3D_VIEWPORT vp = { float(i), float(j), 1.f, 1.f, 0.f, 1.f };
 			HW.pContext->RSSetViewports(1, &vp);
 
 			u32 Offset = 0;
@@ -414,7 +418,7 @@ bool CRenderTarget::probe_atmosphere(atmo_lut& out)
 
 			RCache.set_Element(s_combine->E[0]);
 			RCache.set_Geometry(g_combine);
-			probe_set_frozen_constants();
+			probe_set_frozen_constants(y_lo + y_step * float(j));
 
 			const float u = (nx > 1) ? float(i) / float(nx - 1) : 0.f;
 			fp.x = (pass == 0) ? 0.f : (pass == 2) ? 1.f : u;
@@ -551,10 +555,16 @@ bool CRenderTarget::probe_atmosphere(atmo_lut& out)
 		return false;
 	}
 
+	float row_spread = 0.f;
+	for (u16 j = 1; j < ny; ++j)
+		for (u16 i = 0; i < nx; ++i)
+			row_spread = _max(row_spread, _abs(out.t[j][i] - out.t[0][i]));
+	const bool flat = ny == 1 || row_spread < ROW_EPS;
+
 	out.nx = nx;
-	out.ny = ny;
-	out.y_min = PROBE_Y_MIN;
-	out.y_max = PROBE_Y_MAX;
+	out.ny = flat ? 1 : ny;
+	out.y_min = flat ? FLAT_Y_MIN : y_lo;
+	out.y_max = flat ? FLAT_Y_MAX : y_hi;
 	out.max_channel_disagreement = worst_disagreement;
 	out.degenerate_cells = degenerate;
 	out.analytic = false;
@@ -570,8 +580,21 @@ bool CRenderTarget::probe_atmosphere(atmo_lut& out)
 
 	Msg("~ [perception] atmo probe: %ux%u measured, crc 0x%08x defines 0x%08x, disagreement %.4f, degenerate %u/%u",
 	    nx, ny, out.source_crc, out.defines_hash, worst_disagreement, degenerate, cells);
-	Msg("~ [perception]   T(x): 0.25 -> %.3f   0.50 -> %.3f   0.75 -> %.3f",
-	    out.sample(.25f, 0.f), out.sample(.50f, 0.f), out.sample(.75f, 0.f));
+	if (flat)
+	{
+		Msg("~ [perception]   height has no measurable effect (rows within %.4f), one row kept", row_spread);
+		Msg("~ [perception]   T(x): 0.25 -> %.3f   0.50 -> %.3f   0.75 -> %.3f",
+		    out.sample(.25f, 0.f), out.sample(.50f, 0.f), out.sample(.75f, 0.f));
+	}
+	else
+	{
+		Msg("~ [perception]   height axis over y %.1f..%.1f m, %u rows, rows differ by up to %.3f", y_lo, y_hi,
+		    u32(ny), row_spread);
+		const float ys[3] = {y_lo, 0.5f * (y_lo + y_hi), y_hi};
+		for (u32 k = 0; k < 3; ++k)
+			Msg("~ [perception]   y %7.1f  T(x): 0.25 -> %.3f   0.50 -> %.3f   0.75 -> %.3f", ys[k],
+			    out.sample(.25f, ys[k]), out.sample(.50f, ys[k]), out.sample(.75f, ys[k]));
+	}
 
 	return true;
 }
