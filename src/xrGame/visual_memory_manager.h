@@ -15,6 +15,11 @@ class CCustomMonster;
 class CAI_Stalker;
 class vision_client;
 
+namespace perception
+{
+	class vision_feed;
+}
+
 class CVisualMemoryManager
 {
 #ifdef DEBUG
@@ -41,6 +46,7 @@ private:
 	CCustomMonster* m_object;
 	CAI_Stalker* m_stalker;
 	vision_client* m_client;
+	perception::vision_feed* m_feed; // NPC observers only (FEED-DESIGN 3.4)
 
 private:
 	RAW_VISIBLES m_visible_objects;
@@ -75,6 +81,7 @@ public:
 	float get_visible_value(const CGameObject* game_object, float distance, float object_distance, float time_delta,
 	                        float object_velocity, float luminocity) const;
 	float get_object_velocity(const CGameObject* game_object, const CNotYetVisibleObject& not_yet_visible_object) const;
+	float feed_rate_factor(const CGameObject* game_object) const;
 	u32 get_prev_time(const CGameObject* game_object) const;
 
 public:
@@ -133,6 +140,7 @@ public:
 	float vision_speed() const { return (m_vision_speed); }
 	void set_view_distance_factor(float value) { m_view_distance_factor = (value < 0.f) ? 0.f : value; }
 	float view_distance_factor() const { return (m_view_distance_factor); }
+	perception::vision_feed* feed() const { return m_feed; }
 
 public:
 	IC const VISIBLES& objects() const;

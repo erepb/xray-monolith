@@ -229,6 +229,7 @@ public:
 
 	IC CMemoryManager& memory() const;
 	virtual float feel_vision_mtl_transp(CObject* O, u32 element);
+	virtual bool feel_vision_judge(feel_visible_Item& item, const Fvector& eye, float vis_threshold, bool& visible);
 	virtual void feel_sound_new(CObject* who, int type, CSound_UserDataPtr user_data, const Fvector& Position,
 	                            float power);
 

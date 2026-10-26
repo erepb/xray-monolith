@@ -192,6 +192,14 @@ namespace Feel
 				continue;
 			}
 
+			bool judged_visible;
+			if (feel_vision_judge(*I, P, vis_threshold, judged_visible))
+			{
+				I->fuzzy += (judged_visible ? fuzzy_update_vis : -fuzzy_update_novis) * dt;
+				clamp(I->fuzzy, -.5f, 1.f);
+				continue;
+			}
+
 			// verify relation
 			// if (positive(I->fuzzy) && I->O->Position().similar(I->cp_LR_dst,lr_granularity) && P.similar(I->cp_LR_src,lr_granularity))
 			// continue;

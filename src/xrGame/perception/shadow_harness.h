@@ -4,6 +4,8 @@
 
 #ifdef PERCEPTION_DEBUG
 
+#include "vision_feed.h"
+
 class CCustomMonster;
 
 namespace perception
@@ -30,6 +32,29 @@ namespace perception
 			mode_actor,
 			mode_all
 		};
+
+		// Scoped around one feed judgement in CCustomMonster::feel_vision_judge: times it, and for an
+		// explained pair records its traces for the explain view and the ray log.
+		class feed_pair
+		{
+		public:
+			feed_pair(CCustomMonster& observer, const CObject* target);
+			~feed_pair();
+
+			trace_listener* listener() const { return m_listener; }
+			void judged(const feed_verdict& v);
+
+		private:
+			CCustomMonster& m_observer;
+			const CObject* m_target;
+			trace_listener* m_listener; // null unless the pair is explained
+			bool m_was_recording;
+			bool m_log;
+			CTimer m_timer;
+		};
+
+		// The rate get_visible_value applies to an explained pair, logged at the ray-log interval.
+		void feed_rate(const CCustomMonster& observer, const CObject* target, float lua_rate, float factor);
 
 		extern int g_mode; // perception_shadow
 

@@ -4,6 +4,7 @@
 #include "canopy_oracle.h"
 #include "perception_debug.h"
 #include "shadow_harness.h"
+#include "vision_feed.h"
 #include "../Level.h"
 #include "../entity_alive.h"
 #include "../../Include/xrRender/Kinematics.h"
@@ -608,6 +609,7 @@ namespace perception
 		{
 			atmosphere::instance().on_level_load();
 			occlusion_query::instance().on_level_load();
+			vision_feed::on_level_load();
 			PDBG_ONLY(shadow::on_level_load());
 			foliage_oracle::instance().on_level_load();
 			canopy_oracle::instance().on_level_load();
