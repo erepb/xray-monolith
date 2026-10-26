@@ -4,6 +4,7 @@
 #ifdef PERCEPTION_DEBUG
 
 #include "vision_sampler.h"
+#include "vision_feed.h"
 #include "occlusion_query.h"
 #include "foliage_oracle.h"
 #include "perception_debug.h"
@@ -23,8 +24,6 @@ namespace perception
 	{
 		int g_mode = mode_off;
 
-		static LPCSTR CFG_FILE = "creatures\\perception.ltx";
-		static LPCSTR CFG_SECTION = "vision_sampler";
 
 		// v1's nominal overshoot (Feel_Vision.cpp:212). It reaches past the point only on object
 		// shapes, so it is used only to classify parity mismatches.
@@ -34,14 +33,9 @@ namespace perception
 		static const u32 DETAIL_LOGS_PER_CLASS = 5;
 		static const u32 EXPLAIN_FRESH_MS = 3000;    // a record fades out over this age
 		static const u32 EXPLAIN_OBSERVER_MS = 2000; // an observer silent for longer is not drawn
-		static const u32 POINTS_DEFAULT = 2;
-		static const float CURRENT_EPS_DEFAULT = 0.10f;
-		static const u32 REFRESH_VISITS_DEFAULT = 4;
-		static const float VISIBLE_MIN_DEFAULT = 0.05f;
-		static LPCSTR FEED_SECTION = "vision_feed";
 
-		static u32 s_points = POINTS_DEFAULT;
-		static float s_visible_min = VISIBLE_MIN_DEFAULT;
+		static u32 points() { return vision_feed::config().points; }
+		static float visible_min() { return vision_feed::config().visible_min; }
 
 		LPCSTR mode_name(int mode)
 		{
@@ -140,6 +134,10 @@ namespace perception
 
 			u32 pair_ticks;
 
+			// The feed in play: whole vision ticks, and the judgements inside them.
+			u32 feed_ticks, feed_judgements, feed_seen;
+			double feed_tick_us, feed_judge_us;
+
 			u32 t_start; // Device.dwTimeGlobal at reset; rates are per second since then
 
 			void reset()
@@ -164,9 +162,12 @@ namespace perception
 			debug::v1_point_record v1_point;
 			bool has_v1_point;
 			u32 next_ray_log;
+			u32 next_rate_log;
+			bool fed; // the records drawn are the NPC's own feed's, not this entry's sampler
 
 			observer_entry(const CCustomMonster& m, u32 now)
-				: id(m.ID()), object(&m), last_tick(now), sampler(s32(m.ID())), has_v1_point(false), next_ray_log(0)
+				: id(m.ID()), object(&m), last_tick(now), sampler(s32(m.ID())), has_v1_point(false), next_ray_log(0),
+				  next_rate_log(0), fed(false)
 			{
 			}
 		};
@@ -187,7 +188,8 @@ namespace perception
 		static collide::rq_results s_v1_rq;
 		static u32 s_next_log = 0;
 
-		static bool active() { return g_mode != mode_off || debug::g_explain; }
+		// While the feed is on, v1's verdict is the feed's, so there is nothing to compare against.
+		static bool active() { return !vision_feed::enabled() && (g_mode != mode_off || debug::g_explain); }
 
 		static bool explain_id_matches(u16 id)
 		{
@@ -426,7 +428,7 @@ namespace perception
 			occlusion_result r;
 			trace_options opt;
 			opt.clear_threshold = thr;
-			opt.visible_min = s_visible_min;
+			opt.visible_min = visible_min();
 			const bool ok = occlusion_query::instance().trace(seg, CDB::OPT_CULL, &m, &target, r, opt);
 			s_stats.parity_us += t.GetElapsed_sec() * 1000000.0;
 			++s_stats.parity_rays;
@@ -436,7 +438,7 @@ namespace perception
 			const bool self_blocked = r.self_occluded(seg.length);
 			const bool predicted = !self_blocked && r.v1_transmittance() >= thr;
 
-			const bool feed_seen = !self_blocked && !point_fails(point_visibility(r.channel, thr), s_visible_min);
+			const bool feed_seen = !self_blocked && !point_fails(point_visibility(r.channel, thr), visible_min());
 			++s_stats.rule[predicted ? 1 : 0][feed_seen ? 1 : 0];
 			if (predicted && !feed_seen)
 				++s_stats.rule_limiting[lowest_channel(r.channel)];
@@ -542,20 +544,24 @@ namespace perception
 		{
 		public:
 			float threshold;
+			bool count = true; // the shadow sampler's statistics; off for the feed's explained pairs
 			observer_entry* draw;
 			const CCustomMonster* log_observer; // null: rays are not logged
 			const CObject* log_target;
 
 			virtual void on_trace(const segment& seg, u16 bone, const occlusion_result& r)
 			{
-				++s_stats.sampler_rays;
-				if (r.refreshed)
-					++s_stats.sampler_refreshed;
-				if (r.concealment_skipped)
-					++s_stats.sampler_skipped;
-				if (r.tri_blocked)
-					++s_stats.sampler_tri;
-				debug::g_cache_split.note(r.transmittance < threshold, r);
+				if (count)
+				{
+					++s_stats.sampler_rays;
+					if (r.refreshed)
+						++s_stats.sampler_refreshed;
+					if (r.concealment_skipped)
+						++s_stats.sampler_skipped;
+					if (r.tri_blocked)
+						++s_stats.sampler_tri;
+					debug::g_cache_split.note(r.transmittance < threshold, r);
+				}
 				if (log_observer)
 					log_ray(*log_observer, *log_target, seg, bone, r);
 				if (!draw)
@@ -636,6 +642,15 @@ namespace perception
 		{
 			const double v1_us = m_timer.GetElapsed_sec() * 1000000.0;
 
+			if (vision_feed::enabled())
+			{
+				if (m_dt > 0.f && m_observer.g_Alive())
+				{
+					++s_stats.feed_ticks;
+					s_stats.feed_tick_us += v1_us;
+				}
+				return;
+			}
 			if (!active())
 				return;
 			// dt == 0 leaves v1's fuzzy unchanged, so this tick carries no verdict of its own.
@@ -707,14 +722,14 @@ namespace perception
 				t.Start();
 				trace_options limits;
 				limits.clear_threshold = thr;
-				limits.visible_min = s_visible_min;
-				e.sampler.sample(&m, eye, target, s_points, now, limits, &s_stats.counts, &l);
+				limits.visible_min = visible_min();
+				e.sampler.sample(&m, eye, target, points(), now, limits, &s_stats.counts, &l);
 				s_stats.sampler_us += t.GetElapsed_sec() * 1000000.0;
 				q.record = was_recording;
 
 				++s_stats.pair_ticks;
 				pair_summary s;
-				if (!e.sampler.summary(target, eye, thr, s_visible_min, now, s))
+				if (!e.sampler.summary(target, eye, thr, visible_min(), now, s))
 				{
 					if (!s.slots)
 						++s_stats.unsampled;
@@ -725,7 +740,7 @@ namespace perception
 
 				if (s.has_sticky)
 					accumulate_seen(s, v1_visible);
-				if (s_points > 1)
+				if (points() > 1)
 					accumulate(s, v1_visible);
 				if (log_now)
 					log_pair(m, *target, v1_visible, s);
@@ -747,6 +762,86 @@ namespace perception
 
 		// ---- explain view ---------------------------------------------------------------------
 
+		static const vision_sampler* sampler_of(const observer_entry& e)
+		{
+			if (!e.fed)
+				return &e.sampler;
+			const CCustomMonster* m = smart_cast<const CCustomMonster*>(Level().Objects.net_Find(e.id));
+			const CVisualMemoryManager* vm = m ? m->visual_memory() : 0;
+			const vision_feed* f = vm ? vm->feed() : 0;
+			return f ? &f->sampler() : 0;
+		}
+
+		static listener s_feed_listener;
+
+		feed_pair::feed_pair(CCustomMonster& observer, const CObject* target)
+			: m_observer(observer), m_target(target), m_listener(0), m_was_recording(false), m_log(false)
+		{
+			m_timer.Start();
+			if (!explained(observer, target))
+				return;
+
+			const u32 now = Device.dwTimeGlobal;
+			prune(now);
+			observer_entry& e = acquire(observer, now);
+			e.fed = true;
+			e.has_v1_point = false;
+			e.chords.clear();
+			e.hits.clear();
+			m_log = debug::g_log && now >= e.next_ray_log;
+			if (m_log)
+				e.next_ray_log = now + u32(_max(debug::g_log_interval, 50));
+
+			s_feed_listener.count = false;
+			s_feed_listener.draw = debug::g_draw ? &e : 0;
+			s_feed_listener.log_observer = m_log ? &observer : 0;
+			s_feed_listener.log_target = target;
+			m_listener = &s_feed_listener;
+
+			occlusion_query& q = occlusion_query::instance();
+			m_was_recording = q.record;
+			q.record = s_feed_listener.draw || m_log;
+		}
+
+		feed_pair::~feed_pair()
+		{
+			if (m_listener)
+				occlusion_query::instance().record = m_was_recording;
+			++s_stats.feed_judgements;
+			s_stats.feed_judge_us += m_timer.GetElapsed_sec() * 1000000.0;
+		}
+
+		void feed_pair::judged(const feed_verdict& v)
+		{
+			if (v.seen)
+				++s_stats.feed_seen;
+			if (!m_log)
+				return;
+			string256 deg;
+			Msg("~ [perception] feed %-22s -> %-22s seen %-3s vis %.2f  best %.2f  factor %.3f  lim %-10s %u current  degraded %s",
+			    m_observer.cName().c_str(), m_target->cName().c_str(), v.seen ? "yes" : "no", v.visibility, v.best,
+			    v.factor, limiting_name(v.limiting), u32(v.current), debug::describe_degraded(v.degraded, deg));
+		}
+
+		void feed_rate(const CCustomMonster& observer, const CObject* target, float lua_rate, float factor)
+		{
+			if (!debug::g_log || !explained(observer, target))
+				return;
+			const u32 now = Device.dwTimeGlobal;
+			for (u32 i = 0; i < s_observers.size(); ++i)
+			{
+				observer_entry& e = s_observers[i];
+				if (e.id != observer.ID())
+					continue;
+				if (now < e.next_rate_log)
+					return;
+				e.next_rate_log = now + u32(_max(debug::g_log_interval, 50));
+				Msg("~ [perception] feed rate %s -> %s  lua %.4f  x %.3f = %.4f", observer.cName().c_str(),
+				    target->cName().c_str(), lua_rate, factor, lua_rate * factor);
+				return;
+			}
+		}
+
 		void draw_explained()
 		{
 			CObject* actor = Actor();
@@ -762,7 +857,10 @@ namespace perception
 				if (!explain_id_matches(e.id) || now - e.last_tick > EXPLAIN_OBSERVER_MS)
 					continue;
 
-				const xr_vector<slot_record>* recs = e.sampler.records(actor->ID());
+				const vision_sampler* smp = sampler_of(e);
+				if (!smp)
+					continue;
+				const xr_vector<slot_record>* recs = smp->records(actor->ID());
 				if (!recs)
 					continue;
 
@@ -781,7 +879,7 @@ namespace perception
 					sk.add(rr);
 				}
 
-				if (const slot_record* st = e.sampler.sticky(actor->ID()))
+				if (const slot_record* st = smp->sticky(actor->ID()))
 				{
 					if (st->time)
 					{
@@ -810,41 +908,8 @@ namespace perception
 		void on_level_load()
 		{
 			s_observers.clear();
-			s_points = POINTS_DEFAULT;
-			float current_eps = CURRENT_EPS_DEFAULT;
-			u32 refresh_visits = REFRESH_VISITS_DEFAULT;
-			s_visible_min = VISIBLE_MIN_DEFAULT;
 			if (!s_stats.t_start)
 				s_stats.t_start = Device.dwTimeGlobal;
-
-			string_path fn;
-			if (!FS.exist(fn, "$game_config$", CFG_FILE))
-				Msg("~ [perception] %s absent, vision sampler at defaults", CFG_FILE);
-			else
-			{
-				CInifile* ltx = xr_new<CInifile>(fn, TRUE);
-				if (ltx->line_exist(FEED_SECTION, "visible_min"))
-					s_visible_min = ltx->r_float(FEED_SECTION, "visible_min");
-				if (!ltx->section_exist(CFG_SECTION))
-					Msg("~ [perception] [%s] absent from %s, vision sampler at defaults", CFG_SECTION, CFG_FILE);
-				else
-				{
-					if (ltx->line_exist(CFG_SECTION, "points"))
-						s_points = ltx->r_u32(CFG_SECTION, "points");
-					if (ltx->line_exist(CFG_SECTION, "current_eps"))
-						current_eps = ltx->r_float(CFG_SECTION, "current_eps");
-					if (ltx->line_exist(CFG_SECTION, "refresh_visits"))
-						refresh_visits = ltx->r_u32(CFG_SECTION, "refresh_visits");
-				}
-				xr_delete(ltx);
-			}
-			clamp(s_points, 1u, 64u);
-			clamp(current_eps, 0.f, 1.f);
-			clamp(refresh_visits, 1u, 64u);
-			clamp(s_visible_min, 0.f, 1.f);
-			vision_sampler::configure(current_eps, refresh_visits);
-			Msg("~ [perception] vision sampler: %u point(s) per vision tick, refresh within %.2f m, full every %u visit(s), visible_min %.2f",
-			    s_points, current_eps, refresh_visits, s_visible_min);
 		}
 
 		void on_level_unload()
@@ -866,7 +931,13 @@ namespace perception
 		void report()
 		{
 			const stats& s = s_stats;
-			Msg("~ [perception] shadow report  mode %s  points %u", mode_name(g_mode), s_points);
+			Msg("~ [perception] shadow report  mode %s  points %u", mode_name(g_mode), points());
+			if (vision_feed::enabled())
+				Msg("! [perception] the vision feed is on, so shadow mode samples nothing; perception_feed 0 to compare against v1");
+			if (s.feed_ticks)
+				Msg("~ feed        %u vision tick(s) at %.1f us (the whole tick, every target)  |  %u judgement(s) at %.1f us, %.1f %% seen",
+				    s.feed_ticks, float(s.feed_tick_us / s.feed_ticks), s.feed_judgements,
+				    s.feed_judgements ? float(s.feed_judge_us / s.feed_judgements) : 0.f, pct(s.feed_seen, s.feed_judgements));
 
 			Msg("~ parity      %u check(s), %.1f %% agree, %u decided by the target's own body",
 			    s.parity_n, pct(s.parity_agree, s.parity_n), s.parity_self_decided);
@@ -898,7 +969,7 @@ namespace perception
 				    s.rule[0][1], s.rule_hull);
 			}
 
-			const bool rotating = s_points > 1;
+			const bool rotating = points() > 1;
 			if (rotating && s.bias_n)
 			{
 				Msg("~ bias        %u pair-tick(s): v1 visible %.1f %%  |  v2 on v1 rules %.1f %%  (self-occlusion counted)  |  %.1f %% (not counted)",

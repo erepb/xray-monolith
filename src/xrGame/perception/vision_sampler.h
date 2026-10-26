@@ -74,6 +74,12 @@ namespace perception
 		float visibility;                 // weighted mean v over current rotating records, else the sticky v
 		u16 current;                      // current rotating records
 		occluder_class sticky_dominant;   // the sticky point's lowest channel; occ_class_count = every class clear
+
+		// Where the observer looks (FEED-DESIGN 2.1 cp_LAST): the sticky point while it passes, else the
+		// best passing current rotating record, else the sticky point.
+		bool has_point;
+		u16 point_bone;
+		Fvector point_local;
 	};
 
 	// FEED-DESIGN 2: a point's visibility from its channels, the materials gated at clear_threshold.

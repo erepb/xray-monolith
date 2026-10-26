@@ -1973,6 +1973,7 @@
     <ClInclude Include="perception\atmosphere.h" />
     <ClInclude Include="perception\bone_shape.h" />
     <ClInclude Include="perception\vision_sampler.h" />
+    <ClInclude Include="perception\vision_feed.h" />
     <ClInclude Include="perception\shadow_harness.h" />
     <ClInclude Include="visual_memory_manager_inline.h" />
     <ClInclude Include="visual_memory_params.h" />
@@ -4225,6 +4226,7 @@
     <ClCompile Include="perception\atmosphere.cpp" />
     <ClCompile Include="perception\bone_shape.cpp" />
     <ClCompile Include="perception\vision_sampler.cpp" />
+    <ClCompile Include="perception\vision_feed.cpp" />
     <ClCompile Include="perception\shadow_harness.cpp" />
     <ClCompile Include="wallmark_manager.cpp" />
     <ClCompile Include="Weapon.cpp" />

@@ -1,5 +1,6 @@
-; Vision 2.0 - occlusion primitive and vision sampler tunables.
-; Read once per level load; a console change to a live key (perception_foliage_k,
+; Vision 2.0 - occlusion primitive, vision sampler and NPC detection tunables.
+; Read once per level load; a console change to a live key (perception_feed,
+; perception_feed_visible_min, perception_feed_rate_power, perception_foliage_k,
 ; perception_canopy_k, perception_atmosphere_k) lasts until then.
 ; Every key is listed at its default so the shipped values are discoverable here rather than only in
 ; the C++ initialisers.
@@ -65,11 +66,20 @@ resolve_cache_slots            = 32768
 
 [vision_feed]
 
+; NPCs detect through grass, leaves and the weather's fog, and the fog takes over from the vanilla
+; view-range cut. false is vanilla detection. Live from the console as perception_feed 0|1.
+enabled                        = true
+
 ; Least visibility, 0..1, that some part of a target's body needs for an NPC to see it at all, after
 ; grass, leaves and fog. Raise it if NPCs spot targets that are all but hidden; lower it if a target
 ; deep in grass or fog is never seen. Sight lines that fog alone thins below it are not checked for
 ; grass and leaves.
 visible_min                    = 0.05
+
+; How strongly a partly hidden target slows detection: rate = vanilla rate x visible share ^ this.
+; 1 is proportional; below 1 a partly hidden target is spotted faster, above 1 slower. 0 ignores how
+; much shows. Range 0-4.
+rate_power                     = 1.00
 
 [vision_sampler]
 
@@ -78,8 +88,7 @@ visible_min                    = 0.05
 ; as in vanilla. Every ray past the first goes to the next body part in turn, and those decide how much
 ; of the target shows: 1 detects a partly hidden target as fast as its best visible part, 2 or more
 ; slow detection by how much is hidden. More keeps a moving target's reading fresher at the cost of
-; rays. Range 1-64. Only used while perception_shadow or perception_explain is on; NPC detection does
-; not use it yet.
+; rays. Range 1-64.
 points                         = 2
 
 ; Metres either end of a sight line may move before the reading taken along it is redone in full.

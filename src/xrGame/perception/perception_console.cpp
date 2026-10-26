@@ -5,6 +5,7 @@
 
 #include "occlusion_query.h"
 #include "shadow_harness.h"
+#include "vision_feed.h"
 #include "atmosphere.h"
 #include "canopy_oracle.h"
 #include "../Level.h"
@@ -395,7 +396,10 @@ namespace perception
 				if (!g_explain)
 					sink::instance().clear();
 				Msg("~ [perception] explain %s (all trackers of the actor)", g_explain ? "on" : "off");
-				Msg("~   these are the primitive's numbers, not the NPC's belief - detection still runs on v1");
+				if (vision_feed::enabled())
+					Msg("~   the NPCs' own feed: these are the points their detection uses");
+				else
+					Msg("~   the shadow sampler beside v1: detection runs on v1");
 			}
 
 			virtual void Info(TInfo& I)

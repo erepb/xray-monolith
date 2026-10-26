@@ -54,6 +54,7 @@
 #include "../xrPhysics/IPHWorld.h"
 #include "perception/perception_debug.h"
 #include "perception/shadow_harness.h"
+#include "perception/vision_feed.h"
 
 #ifdef DEBUG
 #	include "debug_renderer.h"
@@ -651,6 +652,14 @@ void CCustomMonster::update_range_fov(float& new_range, float& new_fov, float st
 #endif
 
 	new_fov = start_fov;
+
+	// The feed's measured fog replaces v1's density and far-plane terms (FEED-DESIGN 1.1).
+	if (memory().visual().feed() && perception::vision_feed::enabled())
+	{
+		new_range = start_range;
+		return;
+	}
+
 	new_range =
 		start_range
 		*
@@ -701,7 +710,47 @@ void CCustomMonster::eye_pp_s2()
 	eye_pp_timestamp = dwTime;
 	PDBG_ONLY(perception::shadow::tick shadow_tick(*this, float(dwDT) / 1000.f));
 	feel_vision_update(this, eye_matrix.c, float(dwDT) / 1000.f, memory().visual().transparency_threshold());
+
+	if (perception::vision_feed* feed = memory().visual().feed())
+	{
+		if (perception::vision_feed::enabled())
+		{
+			static xr_vector<u16> ids;
+			ids.clear();
+			for (u32 i = 0; i < feel_visible.size(); ++i)
+				ids.push_back(feel_visible[i].O->ID());
+			feed->retain_only(ids);
+		}
+		else
+			feed->clear();
+	}
 	Device.Statistic->AI_Vis_RayTests.End();
+}
+
+bool CCustomMonster::feel_vision_judge(feel_visible_Item& item, const Fvector& eye, float vis_threshold, bool& visible)
+{
+	perception::vision_feed* feed = memory().visual().feed();
+	if (!feed || !perception::vision_feed::enabled())
+		return false;
+
+	perception::feed_verdict v;
+#ifdef PERCEPTION_DEBUG
+	perception::shadow::feed_pair dbg(*this, item.O);
+	if (!feed->judge(this, eye, item.O, vis_threshold, Device.dwTimeGlobal, v, dbg.listener()))
+		return false;
+	dbg.judged(v);
+#else
+	if (!feed->judge(this, eye, item.O, vis_threshold, Device.dwTimeGlobal, v))
+		return false;
+#endif
+
+	visible = v.seen;
+	item.bone_id = v.bone;
+	item.cp_LP = v.local;
+	item.cp_LAST = item.O->get_last_local_point_on_mesh(v.local, v.bone);
+	// v1's cached ray predates the feed; it must not answer once the feed is switched off.
+	item.Cache.result = FALSE;
+	return true;
 }
 
 void CCustomMonster::Exec_Visibility()
