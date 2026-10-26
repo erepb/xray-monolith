@@ -187,6 +187,7 @@ namespace perception
 			{
 				m_instance_count -= u32(it->second.items.size());
 				m_resolved.erase(it++);
+				PDBG_ONLY(++m_stats.evicted);
 			}
 			else
 				++it;
@@ -217,6 +218,7 @@ namespace perception
 				{
 					m_instance_count -= u32(it->second.items.size());
 					m_resolved.erase(it++);
+					PDBG_ONLY(++m_stats.evicted);
 				}
 				else
 					++it;

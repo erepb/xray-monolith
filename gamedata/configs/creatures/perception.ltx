@@ -1,14 +1,10 @@
 ; Vision 2.0 - occlusion primitive and vision sampler tunables.
-; Read once per level load; a console change to a live key (perception_ray_extend,
-; perception_foliage_k, perception_canopy_k, perception_atmosphere_k) lasts until then.
+; Read once per level load; a console change to a live key (perception_foliage_k,
+; perception_canopy_k, perception_atmosphere_k) lasts until then.
 ; Every key is listed at its default so the shipped values are discoverable here rather than only in
 ; the C++ initialisers.
 
 [occlusion_model]
-
-; Metres the ray continues past the body point it aims at. Anything in that last stretch counts as
-; blocking the point. Tunable live from the console as perception_ray_extend.
-ray_extend                     = 0.20
 
 ; Trim on the measured grass optical depth:
 ;   transmittance = exp(-foliage_k * tau)
@@ -62,15 +58,37 @@ resolve_budget                 = 64
 ; only together with a shader pack that changes def_aref.
 alpha_ref                      = 0.784
 
-; Grass slots kept once worked out (~320 bytes each, 8192 is about 2.6 MB). Too small and the same
-; slots are worked out again every few seconds, which spends the budget above. Range 1024-262144.
-resolve_cache_slots            = 8192
+; Grass slots kept once worked out (~700 bytes each at GAMMA density, 32768 is about 22 MB). Too small
+; and the same slots are worked out again every few seconds, which spends the budget above; perception_cache
+; shows it as evictions per second close to resolves per second. Range 1024-262144.
+resolve_cache_slots            = 32768
+
+[vision_feed]
+
+; Least visibility, 0..1, that some part of a target's body needs for an NPC to see it at all, after
+; grass, leaves and fog. Raise it if NPCs spot targets that are all but hidden; lower it if a target
+; deep in grass or fog is never seen. Sight lines that fog alone thins below it are not checked for
+; grass and leaves.
+visible_min                    = 0.05
 
 [vision_sampler]
 
-; Body points traced per tracked target, per NPC, per vision update; each costs one ray (10 tracked
-; creatures at 4 points = 40 rays). Points rotate over the body's hit shapes, so every shape is sampled
-; equally often whatever the outcome. More points keep the picture of a moving target fresher.
-; Range 1-64. Only used while perception_shadow or perception_explain is on; NPC detection does not
-; use it yet.
-points                         = 4
+; Rays per tracked target, per NPC, per vision update (10 tracked creatures at 2 = 20 rays). One ray
+; always goes to a point the NPC keeps while it stays visible, so whether the target is seen behaves
+; as in vanilla. Every ray past the first goes to the next body part in turn, and those decide how much
+; of the target shows: 1 detects a partly hidden target as fast as its best visible part, 2 or more
+; slow detection by how much is hidden. More keeps a moving target's reading fresher at the cost of
+; rays. Range 1-64. Only used while perception_shadow or perception_explain is on; NPC detection does
+; not use it yet.
+points                         = 2
+
+; Metres either end of a sight line may move before the reading taken along it is redone in full.
+; While neither end moves, only creatures, doors and other moving things can change what is in the
+; way, so only they are checked again. Lower it if NPCs keep seeing through grass or leaves that a
+; target has just stepped behind; raise it to save work. Range 0-1.
+current_eps                    = 0.10
+
+; How often a still sight line is redone in full, on a fresh point of the same body part: every this
+; many checks of that part. In between only moving things are checked again. Lower it if partly
+; covered body parts read too all-or-nothing; raise it to save work. 1 redoes every check. Range 1-64.
+refresh_visits                 = 4

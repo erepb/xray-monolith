@@ -176,6 +176,8 @@ namespace perception
 				r.draw_line(Fidentity, x.from, x.to, ray_colour(x.transmittance), false);
 				r.draw_aabb(x.from, s, s, s, D3DCOLOR_XRGB(60, 120, 255), false);
 				r.draw_aabb(x.to, s, s, s, dimmed(class_colour(x.dominant), 0.25f + 0.75f * x.freshness), false);
+				if (x.sticky)
+					r.draw_aabb(x.to, s * 2.f, s * 2.f, s * 2.f, D3DCOLOR_XRGB(255, 0, 255), false);
 			}
 
 			// Drawn after the rays so the chord overlays the segment it belongs to.

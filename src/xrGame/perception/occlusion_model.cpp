@@ -8,7 +8,6 @@ namespace perception
 
 	void occlusion_model::set_defaults()
 	{
-		ray_extend = 0.20f;
 		foliage_k = 1.00f;
 		canopy_k = 1.00f;
 		canopy_cone_eye = 0.05f;
@@ -16,7 +15,7 @@ namespace perception
 		atmosphere_k = 1.00f;
 		max_slab_h = 4.00f;
 		resolve_budget = 64;
-		resolve_cache_slots = 8192;
+		resolve_cache_slots = 32768;
 		alpha_ref = 200.f / 255.f;
 	}
 
@@ -34,7 +33,6 @@ namespace perception
 		CInifile* ltx = xr_new<CInifile>(fn, TRUE);
 		if (ltx->section_exist(CFG_SECTION))
 		{
-			if (ltx->line_exist(CFG_SECTION, "ray_extend")) ray_extend = ltx->r_float(CFG_SECTION, "ray_extend");
 			if (ltx->line_exist(CFG_SECTION, "foliage_k")) foliage_k = ltx->r_float(CFG_SECTION, "foliage_k");
 			if (ltx->line_exist(CFG_SECTION, "canopy_k")) canopy_k = ltx->r_float(CFG_SECTION, "canopy_k");
 			if (ltx->line_exist(CFG_SECTION, "canopy_cone_eye"))
@@ -50,7 +48,6 @@ namespace perception
 		}
 		xr_delete(ltx);
 
-		clamp(ray_extend, 0.f, 5.f);
 		clamp(foliage_k, 0.f, 100.f);
 		clamp(canopy_k, 0.f, 100.f);
 		clamp(canopy_cone_eye, 0.01f, 1.f);
@@ -63,8 +60,8 @@ namespace perception
 		clamp(resolve_cache_slots, 1024u, 262144u);
 		clamp(alpha_ref, 0.f, 1.f);
 
-		Msg("~ [perception] occlusion model: foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f extend=%.2f max_slab=%.2f alpha_ref=%.3f",
-		    foliage_k, canopy_k, atmosphere_k, ray_extend, max_slab_h, alpha_ref);
+		Msg("~ [perception] occlusion model: foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f max_slab=%.2f alpha_ref=%.3f",
+		    foliage_k, canopy_k, atmosphere_k, max_slab_h, alpha_ref);
 		Msg("~ [perception]   grass resolve budget %u slot(s)/frame, cache %u slot(s)", resolve_budget,
 		    resolve_cache_slots);
 		Msg("~ [perception]   canopy sight line %.2f m at the eye, %.2f m at the target", canopy_cone_eye,

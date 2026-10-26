@@ -181,8 +181,11 @@ namespace perception
 				    r.from_cache_depth ? "hit" : "miss", r.from_cache_geom ? "hit" : "miss");
 			report_grass(seg, r);
 			report_canopy(seg, r);
-			Msg("~   model  foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f extend=%.2f max_slab=%.2f",
-			    mdl.foliage_k, mdl.canopy_k, mdl.atmosphere_k, mdl.ray_extend, mdl.max_slab_h);
+			if (r.body_hits)
+				Msg("~   bodies %u in the way (%u counted on the bounding sphere)", u32(r.body_hits),
+				    u32(r.sphere_hits));
+			Msg("~   model  foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f max_slab=%.2f",
+			    mdl.foliage_k, mdl.canopy_k, mdl.atmosphere_k, mdl.max_slab_h);
 
 			// The atmospheric input alongside its output, so the report explains itself: x is where
 			// this distance falls in the current fog envelope.
@@ -230,6 +233,33 @@ namespace perception
 				    fs.resolved_slots, mdl.resolve_cache_slots, fs.instances, fs.budget_denied,
 				    mdl.resolve_budget);
 			}
+
+			// What concealment costs per trace, and how much of it the early-outs spare.
+			const occlusion_query::march_stats& ms = occlusion_query::instance().march_cost;
+			const float secs = ms.t_start ? float(Device.dwTimeGlobal - ms.t_start) / 1000.f : 0.f;
+			if (secs > 0.f)
+				Msg("~   grass  %.1f resolve(s)/s, %.1f eviction(s)/s over %.0f s", float(fs.resolve_requests) / secs,
+				    float(fs.evicted) / secs, secs);
+			Msg("~   march  skipped %u behind materials, %u behind fog", ms.material_skipped, ms.fog_skipped);
+			if (ms.traces)
+			{
+				Msg("~   march  %u trace(s): canopy %.1f us; grass marched on %u (%.1f %%) at %.1f us (resolves %.1f us of it), spared on %u behind canopy; %u with grass unresolved",
+				    ms.traces, float(ms.canopy_us / ms.traces), ms.grass_traces,
+				    100.f * float(ms.grass_traces) / float(ms.traces),
+				    ms.grass_traces ? float(ms.grass_us / ms.grass_traces) : 0.f,
+				    ms.grass_traces ? float(ms.grass_resolve_us / ms.grass_traces) : 0.f, ms.grass_skipped,
+				    ms.unresolved);
+				Msg("~   march  per trace that reached concealment: %.1f us",
+				    float((ms.canopy_us + ms.grass_us) / ms.traces));
+			}
+
+			const occlusion_query::ray_stats& rs = occlusion_query::instance().ray_cost;
+			if (rs.queries)
+				Msg("~   ray    %u quer(ies) at %.1f us; bodies pass run %u at %.1f us, skipped %u behind materials",
+				    rs.queries, float(rs.query_us / rs.queries), rs.bodies_run,
+				    rs.bodies_run ? float(rs.bodies_us / rs.bodies_run) : 0.f, rs.bodies_skipped);
+			Msg("~   ray    %u hidden by an earlier blocking triangle with no ray; %u checked by a full trace, %u not blocked",
+			    rs.tri_hits, rs.tri_checked, rs.tri_wrong);
 
 			// Canopy has no cache and no budget; its cost is the crown boxes and BVH work per march.
 			const canopy_oracle::stats& cstats = canopy_oracle::instance().get_stats();
@@ -388,6 +418,8 @@ namespace perception
 				foliage_oracle::instance().reset_stats();
 				canopy_oracle::instance().reset_stats();
 					occlusion_query::instance().reset_validation();
+					occlusion_query::instance().march_cost.reset();
+					occlusion_query::instance().ray_cost.reset();
 					Msg("~ [perception] cache stats reset");
 					return;
 				}
@@ -439,10 +471,9 @@ namespace perception
 			CMD1(CCC_PerceptionCacheStats, "perception_cache");
 			CMD1(CCC_PerceptionShadow, "perception_shadow");
 
-			// Only the trims and ray_extend are live. max_slab_h and the resolve limits are copied into
+			// Only the trims are live. max_slab_h and the resolve limits are copied into
 			// the grass oracle at level load, so a console-bound value would never reach it.
 			occlusion_model& mdl = occlusion_query::instance().tunables();
-			CMD4(CCC_Float, "perception_ray_extend", &mdl.ray_extend, 0.f, 5.f);
 			CMD4(CCC_Float, "perception_foliage_k", &mdl.foliage_k, 0.f, 100.f);
 			CMD4(CCC_Float, "perception_canopy_k", &mdl.canopy_k, 0.f, 100.f);
 			CMD4(CCC_Float, "perception_canopy_cone_eye", &mdl.canopy_cone_eye, 0.01f, 1.f);

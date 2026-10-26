@@ -78,6 +78,7 @@ namespace perception
 			u32 resolve_requests; // total resolves performed
 			float resolve_us;     // total microseconds spent inside resolve_detail_slot
 			u32 budget_denied;    // slots that hit the frame budget and were assumed occluded
+			u32 evicted;          // resolved slots dropped to keep the cache under its cap
 			u32 instances;        // instances currently cached
 
 			u32 marches;          // march() calls

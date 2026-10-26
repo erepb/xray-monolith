@@ -9,7 +9,6 @@ namespace perception
 	// constant.
 	struct occlusion_model
 	{
-		float ray_extend;  // metres past the target; 0.20 reproduces v1 (Feel_Vision.cpp:212)
 		float foliage_k;   // trim on the baked grass extinction; 1.0 = take the bake at its word
 		float canopy_k;    // same, for tree canopy
 		float canopy_cone_eye;    // metres; sight-line width at the observer's eye

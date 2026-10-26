@@ -30,8 +30,8 @@ namespace perception
 
 	LPCSTR degraded_reason_name(u32 bit);
 
-	// The one place a pair of points becomes a ray. v1 rebuilds this inline at four call sites; here
-	// any extension past the end is an explicit argument, so nothing inherits it by accident.
+	// The one place a pair of points becomes a ray. It ends exactly at `to`, where v1's ray ends on
+	// level geometry.
 	struct segment
 	{
 		Fvector from;
@@ -44,7 +44,7 @@ namespace perception
 		// is born here, so that path cannot receive garbage from this module.
 		static bool make(const Fvector& a, const Fvector& b, segment& out);
 
-		collide::ray_defs to_ray_defs(u32 flags, collide::rq_target tgt, float extend) const;
+		collide::ray_defs to_ray_defs(u32 flags, collide::rq_target tgt) const;
 	};
 
 	// Where a ray met an occluder. Lives here rather than in the debug header so occlusion_query can
@@ -87,6 +87,42 @@ namespace perception
 		float level;     // coverage pyramid level read, 0 = base
 		float coverage;  // 0..1, leaf share of the footprint
 		bool near_plane; // nearer the eye than the renderer draws; not counted
+	};
+
+	// What a trace found that cannot change while neither end of its segment moves: static geometry,
+	// grass and canopy. Creatures, doors and other dynamic objects are not in it.
+	struct static_half
+	{
+		float geom[occ_class_count]; // static geometry hits per class
+		float deferred_t;            // static proxy hulls the canopy channel replaces
+		u16 deferred_hits;
+		u16 fallback_hits;
+		float foliage_tau;
+		float canopy_tau;
+		u16 canopy_crowns;
+		u8 degraded;                 // canopy reasons only
+		bool canopy_marched;
+		bool grass_marched;          // false when fog, or fog times canopy, already hid the point
+		float static_materials;      // hard x soft x creature of the static hits alone
+		bool reusable;               // complete enough to stand in for a full trace (FEED-DESIGN 3.6)
+	};
+
+	struct trace_options
+	{
+		// Grass and canopy are not marched once the material channels alone fall below this; 0 always
+		// marches.
+		float clear_threshold = 0.f;
+		// Canopy is not marched once fog alone falls below this, nor grass once fog times canopy does;
+		// 0 always marches.
+		float visible_min = 0.f;
+		// Only the material channels are wanted: grass and canopy are never marched.
+		bool materials_only = false;
+		// The static half of an earlier full trace of this segment. Only dynamic objects are traced;
+		// the rest comes from it.
+		const static_half* reuse = 0;
+		// A static triangle that blocked an earlier trace (occlusion_result::blocker). A segment that
+		// crosses its front face is hidden without a ray. Ignored by a reuse.
+		const Fvector* block_tri = 0;
 	};
 
 	// A point on the near surface is hit by its own shape at the end of the segment, give or take
@@ -138,6 +174,22 @@ namespace perception
 		{
 			return self_hits && (self_range < length - SELF_EPS);
 		}
+
+		// AI-visible objects on the segment (v1's second pass), each blocking outright. sphere_hits of
+		// them have no collision model and are counted on their bounding sphere, as v1 counts them.
+		u16 body_hits;
+		u16 sphere_hits;
+
+		// Filled by every full trace; a reuse copies it through.
+		static_half level;
+		bool refreshed;            // traced from options.reuse
+		bool concealment_skipped;  // materials or fog already hide the point, so grass and canopy were not marched
+		bool tri_blocked;          // hidden by options.block_tri, no ray cast
+
+		// The nearest level triangle on the segment that blocks on its own, vertices in winding order;
+		// never a vegetation proxy hull.
+		Fvector blocker[3];
+		bool has_blocker;
 
 		u16 hit_count;
 		// Kept separate because the two halves of the cache have different tolerances, and because

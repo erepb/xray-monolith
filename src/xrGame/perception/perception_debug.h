@@ -29,6 +29,7 @@ namespace perception
 			float transmittance;
 			occluder_class dominant;
 			float freshness; // 1 = traced now, falling toward 0 with age; dims the end box
+			bool sticky = false; // the feed's sticky point (FEED-DESIGN 2.1)
 		};
 
 		// v1's own sample point for the same pair, so v1 and v2 read side by side on one body.

@@ -45,9 +45,9 @@ namespace perception
 		return true;
 	}
 
-	collide::ray_defs segment::to_ray_defs(u32 flags, collide::rq_target tgt, float extend) const
+	collide::ray_defs segment::to_ray_defs(u32 flags, collide::rq_target tgt) const
 	{
-		return collide::ray_defs(from, dir, length + extend, flags, tgt);
+		return collide::ray_defs(from, dir, length, flags, tgt);
 	}
 
 	void occlusion_result::reset()
@@ -67,6 +67,17 @@ namespace perception
 		degraded = 0;
 		self_hits = 0;
 		self_range = flt_max;
+		body_hits = 0;
+		sphere_hits = 0;
+		ZeroMemory(&level, sizeof(level));
+		for (u32 i = 0; i < occ_class_count; ++i)
+			level.geom[i] = 1.f;
+		level.deferred_t = 1.f;
+		level.static_materials = 1.f;
+		refreshed = false;
+		concealment_skipped = false;
+		tri_blocked = false;
+		has_blocker = false;
 		hit_count = 0;
 		from_cache_depth = false;
 		from_cache_geom = false;

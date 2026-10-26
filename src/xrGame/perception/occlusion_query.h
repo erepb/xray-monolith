@@ -22,6 +22,23 @@ namespace perception
 	// tested); null when the engine has no such flag.
 	collide::test_callback* vision_test_callback();
 
+	// An AI-visible object on a segment, as v1's second pass finds it (Feel_Vision.cpp:260-295).
+	// Creatures are not obstacles, so RayQuery's object pass never returns them; this is where they
+	// block.
+	struct body_hit
+	{
+		CObject* O;   // null for a spatial that is not a CObject
+		float range;  // metres from the segment start
+		bool sphere;  // no collision model: counted on its bounding sphere, as v1 counts it
+		bool drawn;   // has a visual and is rendered
+	};
+
+	// Every AI-visible object within `range` along seg, except `ignore`, `target` and objects flagged
+	// for vision to ignore, near to far. drawn_only also drops objects nothing draws: "visible for AI"
+	// is a spawn flag, and invisible anomaly zones carry it.
+	void ai_visible_hits(const segment& seg, float range, const CObject* ignore, const CObject* target,
+	                     bool drawn_only, xr_vector<body_hit>& out);
+
 	// The shared occlusion primitive. Not a percept: the firing path will call the same service with
 	// its own origin, rate and threshold, so neither system inherits the other's cadence.
 	class occlusion_query
@@ -36,7 +53,7 @@ namespace perception
 		// `ignore` is never hit (the observer). Hits on `target` are skipped and reported in
 		// self_hits/self_range; either may be null.
 		bool trace(const segment& seg, u32 rq_flags, CObject* ignore, const CObject* target,
-		           occlusion_result& out) const;
+		           occlusion_result& out, const trace_options& opt = trace_options()) const;
 
 		const occlusion_model& model() const { return m_model; }
 
@@ -59,6 +76,33 @@ namespace perception
 		mutable xr_vector<canopy_hit> last_canopy_hits;
 		mutable xr_vector<hit_mark> last_hits;
 
+		// What concealment costs per trace, and how much of it the early-outs spare.
+		struct march_stats
+		{
+			u32 traces;                     // reached the canopy march
+			double canopy_us;
+			u32 grass_traces, grass_skipped; // grass marched / spared because fog times canopy hid the point
+			double grass_us, grass_resolve_us;
+			u32 unresolved;
+			u32 fog_skipped, material_skipped;
+			u32 t_start;
+			void reset() { ZeroMemory(this, sizeof(*this)); t_start = Device.dwTimeGlobal; }
+		};
+		mutable march_stats march_cost = {};
+
+		// What the blocking-triangle shortcut and the bodies early-out spare, and what the query costs.
+		struct ray_stats
+		{
+			u32 tri_hits;                   // traces answered by options.block_tri
+			u32 tri_checked, tri_wrong;     // of them, traced in full anyway; and found not blocked
+			u32 queries;                    // RayQuery calls
+			double query_us;
+			u32 bodies_run, bodies_skipped; // bodies passes run / spared behind a material block
+			double bodies_us;
+			void reset() { ZeroMemory(this, sizeof(*this)); }
+		};
+		mutable ray_stats ray_cost = {};
+
 		// Cached-vs-traced static geometry error. Free to collect: this stage traces both anyway.
 		mutable u32 validate_n = 0;
 		mutable float validate_sum = 0.f;
@@ -68,6 +112,7 @@ namespace perception
 
 	private:
 		mutable collide::rq_results m_hits;
+		mutable xr_vector<body_hit> m_bodies;
 		mutable static_occlusion_cache m_cache;
 		occluder_table m_table;
 		occlusion_model m_model;
