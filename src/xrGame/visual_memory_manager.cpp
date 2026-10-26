@@ -16,6 +16,8 @@
 #include "stalker_movement_manager_smart_cover.h"
 #include "../xrEngine/gamemtllib.h"
 #include "perception/occlusion_query.h"
+#include "perception/vision_feed.h"
+#include "perception/shadow_harness.h"
 #include "agent_manager.h"
 #include "agent_member_manager.h"
 #include "ai_space.h"
@@ -121,11 +123,13 @@ void CVisualMemoryManager::initialize()
 	m_max_object_count = 128;
 	m_enabled = true;
 	m_objects = 0;
+	m_feed = m_object && !m_client ? xr_new<perception::vision_feed>(s32(size_t(m_object) >> 4)) : 0;
 }
 
 CVisualMemoryManager::~CVisualMemoryManager()
 {
 	clear_delayed_objects();
+	xr_delete(m_feed);
 
 	if (!m_client)
 		return;
@@ -151,6 +155,8 @@ void CVisualMemoryManager::reinit()
 
 	if (m_object)
 		m_object->feel_vision_clear();
+	if (m_feed)
+		m_feed->clear();
 
 	m_last_update_time = u32(-1);
 }
@@ -364,9 +370,18 @@ float CVisualMemoryManager::get_visible_value(const CGameObject* game_object, fl
 	//Alundaio: hijack not_yet_visible_object to lua
 	::luabind::functor<float> funct;
 	if (ai().script_engine().functor("visual_memory_manager.get_visible_value", funct))
-		return (funct(m_object ? m_object->lua_game_object() : 0, game_object ? game_object->lua_game_object() : 0,
-		              time_delta, current_state().m_time_quant, luminocity, current_state().m_velocity_factor,
-		              object_velocity, distance, object_distance, always_visible_distance)) * g_ai_vision_speed_boost * m_vision_speed;
+	{
+		const float lua_rate = funct(m_object ? m_object->lua_game_object() : 0,
+		                             game_object ? game_object->lua_game_object() : 0, time_delta,
+		                             current_state().m_time_quant, luminocity, current_state().m_velocity_factor,
+		                             object_velocity, distance, object_distance, always_visible_distance);
+		const float factor = feed_rate_factor(game_object);
+#ifdef PERCEPTION_DEBUG
+		if (m_feed && m_object && game_object && perception::vision_feed::enabled())
+			perception::shadow::feed_rate(*m_object, game_object, lua_rate, factor);
+#endif
+		return lua_rate * g_ai_vision_speed_boost * m_vision_speed * factor;
+	}
 	//-Alundaio
 
 	return (
@@ -376,7 +391,14 @@ float CVisualMemoryManager::get_visible_value(const CGameObject* game_object, fl
 		(1.f + current_state().m_velocity_factor * object_velocity) *
 		(distance - object_distance) /
 		(distance - always_visible_distance)
-	) * g_ai_vision_speed_boost * m_vision_speed;
+	) * g_ai_vision_speed_boost * m_vision_speed * feed_rate_factor(game_object);
+}
+
+float CVisualMemoryManager::feed_rate_factor(const CGameObject* game_object) const
+{
+	if (!m_feed || !game_object || !perception::vision_feed::enabled())
+		return 1.f;
+	return m_feed->rate_factor(game_object->ID());
 }
 
 CNotYetVisibleObject* CVisualMemoryManager::not_yet_visible_object(const CGameObject* game_object)

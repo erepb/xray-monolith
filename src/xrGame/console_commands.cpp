@@ -3,6 +3,7 @@
 #include "../xrEngine/xr_ioc_cmd.h"
 #include "../xrEngine/customhud.h"
 #include "perception/perception_debug.h"
+#include "perception/vision_feed.h"
 #include "../xrEngine/fdemorecord.h"
 #include "../xrEngine/fdemoplay.h"
 #include "xrMessages.h"
@@ -2519,6 +2520,7 @@ void CCC_RegisterCommands()
 #endif //#ifdef DEBUG
 
 	perception::debug::register_console_commands();
+	perception::vision_feed::register_console_commands();
 	// game
 
 	psActorFlags.set(AF_CROUCH_TOGGLE, FALSE);

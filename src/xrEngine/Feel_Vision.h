@@ -74,5 +74,10 @@ namespace Feel
 
 		virtual bool feel_vision_isRelevant(CObject* O) = 0;
 		virtual float feel_vision_mtl_transp(CObject* O, u32 element) = 0;
+
+		// True when the owner judged the item itself: visible is its verdict, and the owner has set
+		// cp_LP, bone_id and cp_LAST. The ray, its cache and the reroll are skipped.
+		virtual bool feel_vision_judge(feel_visible_Item& item, const Fvector& eye, float vis_threshold,
+		                               bool& visible) { return false; }
 	};
 };

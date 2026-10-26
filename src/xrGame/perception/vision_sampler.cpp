@@ -355,6 +355,7 @@ namespace perception
 
 		float w = 0.f, clear = 0.f, clear_v1 = 0.f, clear_v1_self = 0.f, self = 0.f, t = 0.f;
 		float cur_w = 0.f, cur_v = 0.f;
+		u32 best_rot = u32(-1);
 		float channel[occ_class_count];
 		for (u32 c = 0; c < occ_class_count; ++c)
 			channel[c] = 0.f;
@@ -393,6 +394,8 @@ namespace perception
 				++out.current;
 				cur_w += sw;
 				cur_v += sw * rec.v;
+				if (u32(-1) == best_rot || rec.v > p->records[best_rot].v)
+					best_rot = i;
 				out.best = _max(out.best, rec.v);
 			}
 		}
@@ -406,6 +409,30 @@ namespace perception
 			out.sticky_dominant = lowest_channel(p->sticky.channel);
 		}
 		out.seen = !point_fails(out.best, visible_min);
+
+		const slot_record* point = 0;
+		u32 point_slot = 0;
+		if (sticky_current && !point_fails(p->sticky.v, visible_min))
+		{
+			point = &p->sticky;
+			point_slot = p->sticky_slot;
+		}
+		else if (u32(-1) != best_rot && !point_fails(p->records[best_rot].v, visible_min))
+		{
+			point = &p->records[best_rot];
+			point_slot = best_rot;
+		}
+		else if (p->sticky_set)
+		{
+			point = &p->sticky;
+			point_slot = p->sticky_slot;
+		}
+		if (point)
+		{
+			out.has_point = true;
+			out.point_bone = p->slots[point_slot].bone;
+			out.point_local = point->local;
+		}
 		out.visibility = cur_w > 0.f ? cur_v / cur_w : (sticky_current ? p->sticky.v : 0.f);
 
 		if (out.sampled && w > 0.f)
