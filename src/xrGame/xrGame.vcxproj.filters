@@ -7526,6 +7526,9 @@
     <ClInclude Include="perception\foliage_profile.h">
       <Filter>Perception</Filter>
     </ClInclude>
+    <ClInclude Include="perception\perception_config.h">
+      <Filter>Perception</Filter>
+    </ClInclude>
     <ClInclude Include="perception\perception_debug.h">
       <Filter>Perception</Filter>
     </ClInclude>

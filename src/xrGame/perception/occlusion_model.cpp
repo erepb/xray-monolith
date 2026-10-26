@@ -1,22 +1,20 @@
 #include "stdafx.h"
 #include "occlusion_model.h"
+#include "perception_config.h"
 
 namespace perception
 {
-	static LPCSTR CFG_FILE = "creatures\\perception.ltx";
 	static LPCSTR CFG_SECTION = "occlusion_model";
 
 	void occlusion_model::set_defaults()
 	{
-		ray_extend = 0.20f;
 		foliage_k = 1.00f;
 		canopy_k = 1.00f;
 		canopy_cone_eye = 0.05f;
 		canopy_cone_target = 0.30f;
 		atmosphere_k = 1.00f;
-		max_slab_h = 4.00f;
 		resolve_budget = 64;
-		resolve_cache_slots = 8192;
+		resolve_cache_slots = 32768;
 		alpha_ref = 200.f / 255.f;
 	}
 
@@ -24,47 +22,22 @@ namespace perception
 	{
 		set_defaults();
 
-		string_path fn;
-		if (!FS.exist(fn, "$game_config$", CFG_FILE))
-		{
-			Msg("~ [perception] %s absent, occlusion model at defaults", CFG_FILE);
-			return;
-		}
+		CInifile* ltx = open_config("occlusion model");
+		report_section(ltx, CFG_SECTION);
 
-		CInifile* ltx = xr_new<CInifile>(fn, TRUE);
-		if (ltx->section_exist(CFG_SECTION))
-		{
-			if (ltx->line_exist(CFG_SECTION, "ray_extend")) ray_extend = ltx->r_float(CFG_SECTION, "ray_extend");
-			if (ltx->line_exist(CFG_SECTION, "foliage_k")) foliage_k = ltx->r_float(CFG_SECTION, "foliage_k");
-			if (ltx->line_exist(CFG_SECTION, "canopy_k")) canopy_k = ltx->r_float(CFG_SECTION, "canopy_k");
-			if (ltx->line_exist(CFG_SECTION, "canopy_cone_eye"))
-				canopy_cone_eye = ltx->r_float(CFG_SECTION, "canopy_cone_eye");
-			if (ltx->line_exist(CFG_SECTION, "canopy_cone_target"))
-				canopy_cone_target = ltx->r_float(CFG_SECTION, "canopy_cone_target");
-			if (ltx->line_exist(CFG_SECTION, "atmosphere_k")) atmosphere_k = ltx->r_float(CFG_SECTION, "atmosphere_k");
-			if (ltx->line_exist(CFG_SECTION, "max_slab_h")) max_slab_h = ltx->r_float(CFG_SECTION, "max_slab_h");
-			if (ltx->line_exist(CFG_SECTION, "resolve_budget")) resolve_budget = ltx->r_u32(CFG_SECTION, "resolve_budget");
-			if (ltx->line_exist(CFG_SECTION, "resolve_cache_slots"))
-				resolve_cache_slots = ltx->r_u32(CFG_SECTION, "resolve_cache_slots");
-			if (ltx->line_exist(CFG_SECTION, "alpha_ref")) alpha_ref = ltx->r_float(CFG_SECTION, "alpha_ref");
-		}
+		foliage_k = cfg_float(ltx, CFG_SECTION, "foliage_k", foliage_k, 0.f, 100.f);
+		canopy_k = cfg_float(ltx, CFG_SECTION, "canopy_k", canopy_k, 0.f, 100.f);
+		canopy_cone_eye = cfg_float(ltx, CFG_SECTION, "canopy_cone_eye", canopy_cone_eye, 0.01f, 1.f);
+		canopy_cone_target = cfg_float(ltx, CFG_SECTION, "canopy_cone_target", canopy_cone_target, 0.01f, 2.f);
+		atmosphere_k = cfg_float(ltx, CFG_SECTION, "atmosphere_k", atmosphere_k, 0.f, 100.f);
+		// A zero budget would make every grass slot permanently opaque.
+		resolve_budget = cfg_u32(ltx, CFG_SECTION, "resolve_budget", resolve_budget, 1u, 4096u);
+		resolve_cache_slots = cfg_u32(ltx, CFG_SECTION, "resolve_cache_slots", resolve_cache_slots, 1024u, 262144u);
+		alpha_ref = cfg_float(ltx, CFG_SECTION, "alpha_ref", alpha_ref, 0.f, 1.f);
 		xr_delete(ltx);
 
-		clamp(ray_extend, 0.f, 5.f);
-		clamp(foliage_k, 0.f, 100.f);
-		clamp(canopy_k, 0.f, 100.f);
-		clamp(canopy_cone_eye, 0.01f, 1.f);
-		clamp(canopy_cone_target, 0.01f, 2.f);
-		clamp(atmosphere_k, 0.f, 100.f);
-		clamp(max_slab_h, 0.f, 64.f);
-		// A zero budget would turn every grass slot permanently opaque; a cache smaller than the slots
-		// one long ray crosses would evict its own working set.
-		clamp(resolve_budget, 1u, 4096u);
-		clamp(resolve_cache_slots, 1024u, 262144u);
-		clamp(alpha_ref, 0.f, 1.f);
-
-		Msg("~ [perception] occlusion model: foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f extend=%.2f max_slab=%.2f alpha_ref=%.3f",
-		    foliage_k, canopy_k, atmosphere_k, ray_extend, max_slab_h, alpha_ref);
+		Msg("~ [perception] occlusion model: foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f alpha_ref=%.3f",
+		    foliage_k, canopy_k, atmosphere_k, alpha_ref);
 		Msg("~ [perception]   grass resolve budget %u slot(s)/frame, cache %u slot(s)", resolve_budget,
 		    resolve_cache_slots);
 		Msg("~ [perception]   canopy sight line %.2f m at the eye, %.2f m at the target", canopy_cone_eye,

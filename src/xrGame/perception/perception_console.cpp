@@ -164,17 +164,17 @@ namespace perception
 			    r.channel[occ_hard], r.channel[occ_soft], r.channel[occ_creature], r.channel[occ_foliage],
 			    r.channel[occ_canopy], r.channel[occ_atmosphere]);
 			if (r.foliage_unresolved)
-				Msg("~   foliage tau  (unresolved - forced opaque)   hits %u   cache depth:%s geom:%s",
-				    r.hit_count, r.from_cache_depth ? "hit" : "miss",
-				    r.from_cache_geom ? "hit" : "miss");
+				Msg("~   foliage tau  (unresolved - forced opaque)   hits %u", r.hit_count);
 			else
-				Msg("~   foliage tau %.3f   hits %u   cache depth:%s geom:%s",
-				    r.foliage_tau, r.hit_count,
-				    r.from_cache_depth ? "hit" : "miss", r.from_cache_geom ? "hit" : "miss");
+				Msg("~   foliage tau %.3f   hits %u   cache depth:%s",
+				    r.foliage_tau, r.hit_count, r.from_cache_depth ? "hit" : "miss");
 			report_grass(seg, r);
 			report_canopy(seg, r);
-			Msg("~   model  foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f extend=%.2f max_slab=%.2f",
-			    mdl.foliage_k, mdl.canopy_k, mdl.atmosphere_k, mdl.ray_extend, mdl.max_slab_h);
+			if (r.body_hits)
+				Msg("~   bodies %u in the way (%u counted on the bounding sphere)", u32(r.body_hits),
+				    u32(r.sphere_hits));
+			Msg("~   model  foliage_k=%.2f canopy_k=%.2f atmosphere_k=%.2f",
+			    mdl.foliage_k, mdl.canopy_k, mdl.atmosphere_k);
 
 			// The atmospheric input alongside its output, so the report explains itself: x is where
 			// this distance falls in the current fog envelope.
@@ -193,21 +193,29 @@ namespace perception
 				Msg("~   fog    no height dependence measured");
 		}
 
+		static void reset_counters()
+		{
+			g_cache_split.reset();
+			occlusion_query::instance().cache().reset_stats();
+			foliage_oracle::instance().reset_stats();
+			canopy_oracle::instance().reset_stats();
+			occlusion_query::instance().march_cost.reset();
+			occlusion_query::instance().ray_cost.reset();
+		}
+
 		static void report_cache()
 		{
 			const static_occlusion_cache::stats& s = occlusion_query::instance().cache().get_stats();
-			Msg("~ [perception] cache  probes %u  depth %u  geom %u  evictions %u",
-			    s.probes, s.depth_hits, s.geom_hits, s.evictions);
+			Msg("~ [perception] cache  probes %u  depth %u  evictions %u", s.probes, s.depth_hits, s.evictions);
 
 			const cache_split& cs = g_cache_split;
 			for (u32 i = 0; i < 2; ++i)
 			{
 				if (!cs.traces[i])
 					continue;
-				Msg("~   %-8s traces %6u  depth %5.1f %%  geom %5.1f %%  degraded %5.1f %%",
+				Msg("~   %-8s traces %6u  depth %5.1f %%  degraded %5.1f %%",
 				    i ? "occluded" : "visible", cs.traces[i],
 				    100.f * float(cs.depth_hits[i]) / float(cs.traces[i]),
-				    100.f * float(cs.geom_hits[i]) / float(cs.traces[i]),
 				    100.f * float(cs.degraded[i]) / float(cs.traces[i]));
 			}
 
@@ -229,6 +237,33 @@ namespace perception
 				    mdl.resolve_budget);
 			}
 
+			// What concealment costs per trace, and how much of it the early-outs spare.
+			const occlusion_query::march_stats& ms = occlusion_query::instance().march_cost;
+			const float secs = ms.t_start ? float(Device.dwTimeGlobal - ms.t_start) / 1000.f : 0.f;
+			if (secs > 0.f)
+				Msg("~   grass  %.1f resolve(s)/s, %.1f eviction(s)/s over %.0f s", float(fs.resolve_requests) / secs,
+				    float(fs.evicted) / secs, secs);
+			Msg("~   march  skipped %u behind materials, %u behind fog", ms.material_skipped, ms.fog_skipped);
+			if (ms.traces)
+			{
+				Msg("~   march  %u trace(s): canopy %.1f us; grass marched on %u (%.1f %%) at %.1f us (resolves %.1f us of it), spared on %u behind canopy; %u with grass unresolved",
+				    ms.traces, float(ms.canopy_us / ms.traces), ms.grass_traces,
+				    100.f * float(ms.grass_traces) / float(ms.traces),
+				    ms.grass_traces ? float(ms.grass_us / ms.grass_traces) : 0.f,
+				    ms.grass_traces ? float(ms.grass_resolve_us / ms.grass_traces) : 0.f, ms.grass_skipped,
+				    ms.unresolved);
+				Msg("~   march  per trace that reached concealment: %.1f us",
+				    float((ms.canopy_us + ms.grass_us) / ms.traces));
+			}
+
+			const occlusion_query::ray_stats& rs = occlusion_query::instance().ray_cost;
+			if (rs.queries)
+				Msg("~   ray    %u quer(ies) at %.1f us; bodies pass run %u at %.1f us, skipped %u behind materials",
+				    rs.queries, float(rs.query_us / rs.queries), rs.bodies_run,
+				    rs.bodies_run ? float(rs.bodies_us / rs.bodies_run) : 0.f, rs.bodies_skipped);
+			Msg("~   ray    %u hidden by an earlier blocking triangle with no ray; %u checked by a full trace, %u not blocked",
+			    rs.tri_hits, rs.tri_checked, rs.tri_wrong);
+
 			// Canopy has no cache and no budget; its cost is the crown boxes and BVH work per march.
 			const canopy_oracle::stats& cstats = canopy_oracle::instance().get_stats();
 			if (cstats.instances)
@@ -244,11 +279,6 @@ namespace perception
 				    float(cstats.boxes_entered) / n, float(cstats.node_tests) / n, float(cstats.triangle_tests) / n,
 				    float(cstats.hits) / n);
 			}
-
-			const occlusion_query& q = occlusion_query::instance();
-			if (q.validate_n)
-				Msg("~   geom cache error over %u hits: mean %.4f  max %.4f",
-				    q.validate_n, q.validate_sum / float(q.validate_n), q.validate_max);
 		}
 
 		class CCC_PerceptionProbe : public IConsole_Command
@@ -360,11 +390,7 @@ namespace perception
 
 				g_explain = !g_explain;
 				g_explain_id = 0xffff;
-				g_cache_split.reset();
-				occlusion_query::instance().cache().reset_stats();
-				foliage_oracle::instance().reset_stats();
-				canopy_oracle::instance().reset_stats();
-				occlusion_query::instance().reset_validation();
+				reset_counters();
 				if (!g_explain)
 					sink::instance().clear();
 				Msg("~ [perception] explain %s (all trackers of the actor)", g_explain ? "on" : "off");
@@ -386,11 +412,7 @@ namespace perception
 			{
 				if (args && 0 == xr_strcmp(args, "reset"))
 				{
-					g_cache_split.reset();
-					occlusion_query::instance().cache().reset_stats();
-				foliage_oracle::instance().reset_stats();
-				canopy_oracle::instance().reset_stats();
-					occlusion_query::instance().reset_validation();
+					reset_counters();
 					Msg("~ [perception] cache stats reset");
 					return;
 				}
@@ -442,10 +464,9 @@ namespace perception
 			CMD1(CCC_PerceptionCacheStats, "perception_cache");
 			CMD1(CCC_PerceptionShadow, "perception_shadow");
 
-			// Only the trims and ray_extend are live. max_slab_h and the resolve limits are copied into
-			// the grass oracle at level load, so a console-bound value would never reach it.
+			// A console perception_canopy_cone_eye does not reach the canopy pyramids, which are sized from
+			// the ltx at level load.
 			occlusion_model& mdl = occlusion_query::instance().tunables();
-			CMD4(CCC_Float, "perception_ray_extend", &mdl.ray_extend, 0.f, 5.f);
 			CMD4(CCC_Float, "perception_foliage_k", &mdl.foliage_k, 0.f, 100.f);
 			CMD4(CCC_Float, "perception_canopy_k", &mdl.canopy_k, 0.f, 100.f);
 			CMD4(CCC_Float, "perception_canopy_cone_eye", &mdl.canopy_cone_eye, 0.01f, 1.f);

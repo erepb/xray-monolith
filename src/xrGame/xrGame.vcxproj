@@ -1964,6 +1964,7 @@
     <ClInclude Include="perception\coverage_lod.h" />
     <ClInclude Include="perception\slot_walk.h" />
     <ClInclude Include="perception\foliage_profile.h" />
+    <ClInclude Include="perception\perception_config.h" />
     <ClInclude Include="perception\perception_debug.h" />
     <ClInclude Include="perception\occlusion_types.h" />
     <ClInclude Include="perception\occluder_table.h" />

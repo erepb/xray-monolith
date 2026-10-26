@@ -31,8 +31,7 @@ namespace perception
 
 		struct march_result
 		{
-			float tau;     // optical depth: -sum(ln T_i) over crossed instances
-			u16 crossings; // instances actually intersected
+			float tau;        // optical depth: -sum(ln T_i) over crossed instances
 			u16 unresolved;   // slots that had to be assumed occluded, see march()
 		};
 
@@ -48,9 +47,9 @@ namespace perception
 		// Per-frame budget reset, placement-change poll and eviction. Called from the level tick.
 		void on_frame();
 
-		// Slabs run to 11-22 m on some levels; this bounds the terrain-relief part of the band used for
-		// the cheap pre-reject only - it never scales an instance or cuts the grass height. 0 disables.
-		void set_max_slab_h(float h) { m_max_slab_h = h; }
+		// Changes whenever the placement the oracle resolved from changes; cached grass depth from an
+		// earlier epoch is stale.
+		u32 placement_epoch() const { return m_placement_epoch; }
 
 		// Slots resolved per frame engine-wide, and resolved slots retained.
 		void set_resolve_limits(u32 budget, u32 cache_slots)
@@ -73,6 +72,7 @@ namespace perception
 			u32 resolve_requests; // total resolves performed
 			float resolve_us;     // total microseconds spent inside resolve_detail_slot
 			u32 budget_denied;    // slots that hit the frame budget and were assumed occluded
+			u32 evicted;          // resolved slots dropped to keep the cache under its cap
 			u32 instances;        // instances currently cached
 
 			u32 marches;          // march() calls
@@ -143,19 +143,23 @@ namespace perception
 		u32 m_size_z = 0;
 		int m_offs_x = 0;
 		int m_offs_z = 0;
-		float m_max_slab_h = 0.f;
 		u32 m_resolve_budget = 0;
 		u32 m_cache_max = 0;
 		float m_alpha_ref = 200.f / 255.f;
 		bool m_ready = false;
 		bool m_renderer_places = false;
+		u32 m_placement_epoch = 0;
+		u32 m_frame = 0;
+
+		// Last renderer placement state seen, see on_frame().
+		u32 m_detail_gen = 0;
+		float m_detail_height = 1.f;
+		float m_detail_slope = 1.f;
+		bool m_details_on = true;
 
 		mutable resolved_map m_resolved;
 		mutable u32 m_instance_count = 0;
 		mutable u32 m_budget_left = 0;
-		mutable u32 m_frame = 0;
-		mutable u32 m_detail_gen = 0; // last IRender_interface::detail_generation() seen, see on_frame()
-		mutable float m_detail_height = 1.f; // last IRender_interface::detail_height() seen
 #ifdef PERCEPTION_DEBUG
 		mutable stats m_stats;
 #endif

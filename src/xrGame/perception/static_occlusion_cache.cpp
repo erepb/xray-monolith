@@ -8,10 +8,6 @@ namespace perception
 	static const float CELL_XZ = 0.50f;
 	static const float CELL_Y = 0.10f;
 
-	// Geometry reuse tolerance. Well under the 0.5 m cell, so an entry serves its whole cell for
-	// depth while serving only a near-identical query for geometry.
-	static const float GEOM_EPS = 0.05f;
-
 	static IC int quant(float v, float cell)
 	{
 		return iFloor(v / cell);
@@ -25,7 +21,7 @@ namespace perception
 
 	void static_occlusion_cache::stats::reset()
 	{
-		probes = depth_hits = geom_hits = evictions = 0;
+		probes = depth_hits = evictions = 0;
 	}
 
 	static_occlusion_cache::static_occlusion_cache()
@@ -60,12 +56,8 @@ namespace perception
 			&& quant(a.z, CELL_XZ) == quant(b.z, CELL_XZ);
 	}
 
-	void static_occlusion_cache::lookup(const Fvector& from, const Fvector& to,
-	                                    float& depth, bool& got_depth,
-	                                    float* geom, bool& got_geom) const
+	bool static_occlusion_cache::lookup(const Fvector& from, const Fvector& to, float& depth) const
 	{
-		got_depth = false;
-		got_geom = false;
 		++m_stats.probes;
 
 		const u32 base = slot_of(from, to);
@@ -77,22 +69,11 @@ namespace perception
 			if (!same_cell(e.from, from) || !same_cell(e.to, to))
 				continue;
 
-			if (e.tau_valid)
-			{
-				depth = e.foliage_tau;
-				got_depth = true;
-				++m_stats.depth_hits;
-			}
-
-			if (geom && e.from.similar(from, GEOM_EPS) && e.to.similar(to, GEOM_EPS))
-			{
-				for (u32 i = 0; i < occ_class_count; ++i)
-					geom[i] = e.geom[i];
-				got_geom = true;
-				++m_stats.geom_hits;
-			}
-			return;
+			depth = e.foliage_tau;
+			++m_stats.depth_hits;
+			return true;
 		}
+		return false;
 	}
 
 	void static_occlusion_cache::store(const entry& e)
@@ -105,25 +86,9 @@ namespace perception
 		{
 			const u32 i = (base + p) & (CAPACITY - 1);
 			entry& s = m_slots[i];
-			if (!s.used)
+			if (!s.used || (same_cell(s.from, e.from) && same_cell(s.to, e.to)))
 			{
 				s = e;
-				s.used = true;
-				return;
-			}
-			if (same_cell(s.from, e.from) && same_cell(s.to, e.to))
-			{
-				// A budget-denied result (tau_valid=false) must not clobber a previously valid
-				// foliage_tau for the same cell - lookup() already gates on tau_valid, so doing so
-				// would only discard good work, never serve a wrong answer.
-				const bool keep_tau = s.tau_valid && !e.tau_valid;
-				const float old_tau = s.foliage_tau;
-				s = e;
-				if (keep_tau)
-				{
-					s.foliage_tau = old_tau;
-					s.tau_valid = true;
-				}
 				s.used = true;
 				return;
 			}

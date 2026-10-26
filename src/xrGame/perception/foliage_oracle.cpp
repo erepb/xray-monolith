@@ -41,6 +41,12 @@ namespace perception
 		PDBG_SCOPE("foliage: total bake");
 		on_level_unload();
 
+		// Baseline for on_frame()'s change check - a fresh load already reflects current placement.
+		m_detail_gen = ::Render ? ::Render->detail_generation() : 0;
+		m_detail_height = ::Render ? ::Render->detail_height() : 1.f;
+		m_detail_slope = ::Render ? ::Render->detail_slope() : 1.f;
+		m_details_on = !!psDeviceFlags.is(rsDetails);
+
 		detail_data dd;
 		{
 			PDBG_SCOPE("foliage: parse level.details");
@@ -102,9 +108,7 @@ namespace perception
 			m_renderer_places = ::Render && ::Render->resolve_detail_slot(-m_offs_x, -m_offs_z, probe);
 		}
 
-		// Baseline for on_frame()'s change check - a fresh load already reflects current placement.
-		m_detail_gen = ::Render ? ::Render->detail_generation() : 0;
-		m_detail_height = ::Render ? ::Render->detail_height() : 1.f;
+		++m_placement_epoch;
 
 		m_ready = true;
 
@@ -139,10 +143,7 @@ namespace perception
 
 	float foliage_oracle::band_height(const cell& c) const
 	{
-		float relief = float(c.slab_h) * 0.1f;
-		if (m_max_slab_h > 0.f)
-			relief = _min(relief, m_max_slab_h);
-		return relief + float(c.tallest) * 0.1f * m_detail_height;
+		return float(c.slab_h) * 0.1f + float(c.tallest) * 0.1f * m_detail_height;
 	}
 
 	void foliage_oracle::on_frame()
@@ -157,14 +158,19 @@ namespace perception
 		// The renderer rebuilds Details (and re-places every instance) when detail density/height or
 		// radius changes on vid_restart. Nothing else tells the oracle that happened, so a stale cache
 		// would keep serving pre-change instances for the rest of the session. Placement reads the
-		// height slider live, so a change to it alone re-scales every instance resolved from then on.
-		if (::Render && (::Render->detail_generation() != m_detail_gen || ::Render->detail_height() != m_detail_height))
+		// height slider and the slope limit live, so a change to either is polled here.
+		const bool details_on = !!psDeviceFlags.is(rsDetails);
+		if (::Render && (::Render->detail_generation() != m_detail_gen || ::Render->detail_height() != m_detail_height ||
+		                 ::Render->detail_slope() != m_detail_slope || details_on != m_details_on))
 		{
 			const u32 dropped = u32(m_resolved.size());
 			m_resolved.clear();
 			m_instance_count = 0;
+			++m_placement_epoch;
 			m_detail_gen = ::Render->detail_generation();
 			m_detail_height = ::Render->detail_height();
+			m_detail_slope = ::Render->detail_slope();
+			m_details_on = details_on;
 			Msg("~ [perception] foliage: detail placement changed - dropped %u resolved slot(s)", dropped);
 		}
 
@@ -187,6 +193,7 @@ namespace perception
 			{
 				m_instance_count -= u32(it->second.items.size());
 				m_resolved.erase(it++);
+				PDBG_ONLY(++m_stats.evicted);
 			}
 			else
 				++it;
@@ -216,6 +223,7 @@ namespace perception
 				{
 					m_instance_count -= u32(it->second.items.size());
 					m_resolved.erase(it++);
+					PDBG_ONLY(++m_stats.evicted);
 				}
 				else
 					++it;
@@ -262,7 +270,6 @@ namespace perception
 	                           xr_vector<veg_chord>* chords) const
 	{
 		out.tau = 0.f;
-		out.crossings = 0;
 		out.unresolved = 0;
 		if (!m_ready || !m_renderer_places || !psDeviceFlags.is(rsDetails))
 			return;
@@ -397,7 +404,6 @@ namespace perception
 				continue;
 
 			out.tau += tau;
-			++out.crossings;
 
 			if (chords)
 			{
