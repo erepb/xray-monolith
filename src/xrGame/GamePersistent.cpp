@@ -41,6 +41,7 @@
 #	include "ai_debug.h"
 #endif // _EDITOR
 #include "gametype_chooser.h"
+#include "mcp/mcp_server.h"
 
 //#ifdef DEBUG_MEMORY_MANAGER
 //	static	void *	ode_alloc	(size_t size)								{ return Memory.mem_alloc(size,"ODE");			}
@@ -162,11 +163,14 @@ void CGamePersistent::OnAppStart()
 	m_pUI_core = xr_new<ui_core>();
 	m_pMainMenu = xr_new<CMainMenu>();
 	m_pWallmarksManager = xr_new<ScriptWallmarksManager>();
+	mcp_startup();
 }
 
 
 void CGamePersistent::OnAppEnd()
 {
+	mcp_shutdown();
+
 	if (m_pMainMenu->IsActive())
 		m_pMainMenu->Activate(false);
 

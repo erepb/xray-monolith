@@ -59,6 +59,7 @@ void export_classes	(lua_State *L)
 	CClientSpawnManager::script_register(L);
 	console_registrator::script_register(L);
 	shader_bus_registrator::script_register(L);
+	mcp_registrator::script_register(L);
 	CCoverPoint::script_register(L);
 	demo_player_info::script_register(L);
 	demo_info::script_register(L);

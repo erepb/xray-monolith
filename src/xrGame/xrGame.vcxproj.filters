@@ -1324,6 +1324,9 @@
     <Filter Include="AI\AScript\ScriptClasses\Console">
       <UniqueIdentifier>{e256099f-7f69-49b3-900a-087c7fde9645}</UniqueIdentifier>
     </Filter>
+    <Filter Include="MCP">
+      <UniqueIdentifier>{22a19bb1-e31f-4ce4-a912-afeaf8587faa}</UniqueIdentifier>
+    </Filter>
     <Filter Include="AI\AScript\ScriptClasses\BaseClientClasses">
       <UniqueIdentifier>{9902c3e6-be5f-44b6-b539-cca3243e5e07}</UniqueIdentifier>
     </Filter>
@@ -5169,6 +5172,18 @@
     <ClInclude Include="shader_bus_script.h">
       <Filter>AI\AScript\ScriptClasses\Console</Filter>
     </ClInclude>
+    <ClInclude Include="mcp\mcp_common.h">
+      <Filter>MCP</Filter>
+    </ClInclude>
+    <ClInclude Include="mcp\mcp_lua.h">
+      <Filter>MCP</Filter>
+    </ClInclude>
+    <ClInclude Include="mcp\mcp_server.h">
+      <Filter>MCP</Filter>
+    </ClInclude>
+    <ClInclude Include="..\3rd party\json11\json11.hpp">
+      <Filter>MCP</Filter>
+    </ClInclude>
     <ClInclude Include="base_client_classes.h">
       <Filter>AI\AScript\ScriptClasses\BaseClientClasses</Filter>
     </ClInclude>
@@ -8801,6 +8816,18 @@
     </ClCompile>
     <ClCompile Include="shader_bus_script.cpp">
       <Filter>AI\AScript\ScriptClasses\Console</Filter>
+    </ClCompile>
+    <ClCompile Include="mcp\mcp_common.cpp">
+      <Filter>MCP</Filter>
+    </ClCompile>
+    <ClCompile Include="mcp\mcp_lua.cpp">
+      <Filter>MCP</Filter>
+    </ClCompile>
+    <ClCompile Include="mcp\mcp_server.cpp">
+      <Filter>MCP</Filter>
+    </ClCompile>
+    <ClCompile Include="..\3rd party\json11\json11.cpp">
+      <Filter>MCP</Filter>
     </ClCompile>
     <ClCompile Include="base_client_classes_script.cpp">
       <Filter>AI\AScript\ScriptClasses\BaseClientClasses</Filter>

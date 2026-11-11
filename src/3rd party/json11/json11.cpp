@@ -21,6 +21,7 @@
 
 #include "json11.hpp"
 #include <cassert>
+#include <charconv>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -56,9 +57,10 @@ static void dump(NullStruct, string &out) {
 
 static void dump(double value, string &out) {
     if (std::isfinite(value)) {
+        // xray-monolith: shortest representation that round-trips, instead of always %.17g
         char buf[32];
-        snprintf(buf, sizeof buf, "%.17g", value);
-        out += buf;
+        auto res = std::to_chars(buf, buf + sizeof buf, value);
+        out.append(buf, res.ptr);
     } else {
         out += "null";
     }

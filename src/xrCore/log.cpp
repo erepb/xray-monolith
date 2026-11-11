@@ -268,6 +268,24 @@ LogCallback SetLogCB(LogCallback cb)
 	return (result);
 }
 
+size_t LogLineCount()
+{
+	logCS.Enter();
+	size_t count = LogFile.size();
+	logCS.Leave();
+	return count;
+}
+
+void LogCopyLines(size_t from, size_t to, xr_vector<xr_string>& out)
+{
+	logCS.Enter();
+	if (to > LogFile.size())
+		to = LogFile.size();
+	for (size_t i = from; i < to; ++i)
+		out.push_back(LogFile[i]);
+	logCS.Leave();
+}
+
 LPCSTR log_name()
 {
 	return (log_file_name);

@@ -202,6 +202,13 @@ The original engine is used in S.T.A.L.K.E.R. Call of Pripyat game released by G
 <!----><a name="script_debugger_instructions"></a>
 * Debug scripts with VSCode and LuaPanda, support by IX-Ray Platform. How to use it: https://anomaly-modding-book.netlify.app/docs/tutorials/addons/lua-debugger
 
+* Built-in MCP server: lets an AI assistant (Claude Code, Claude Desktop, Cursor, ...) run Lua and console commands in the running game, read the log and take screenshots
+  * Start the game with `-mcp` (optionally `-mcp_port <port>`, default `47100`). The server only listens on `127.0.0.1`
+  * Connect the client, for example Claude Code: `claude mcp add --transport http xray http://127.0.0.1:47100/mcp`
+  * Works in the main menu, while paused and when the window is not focused; `status` and `log_tail` also answer during loading
+  * Anyone on this PC who can reach the port can run Lua in your game, which has file access. Only use `-mcp` when you need it
+  * Scripts can add their own tools: `mcp.register_tool(name, description, schema, fn)`, where `schema` is a JSON-schema table (`{ type = "object", properties = { ... } }`) and `fn(args)` returns the result. Tools registered after the assistant connected show up after it reconnects
+
 * All settings can be edited from the game options in "Modded Exes" tab
 ![image](http://puu.sh/JC40Y/9315119150.jpg)
 

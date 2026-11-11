@@ -167,6 +167,21 @@ void CRender::ScreenshotImpl(ScreenshotMode mode, LPCSTR name, CMemoryWriter* me
 		break;
 	case IRender_interface::SM_NORMAL:
 		{
+			// in-memory captures are always jpg or png
+			if (memory_writer)
+			{
+				ID3DBlob* saved = 0;
+#ifdef USE_DX11
+				HRESULT hr = D3DX11SaveTextureToMemory(HW.pContext, pSrcTexture, ps_r_screenshot_token == 0 ? D3DX11_IFF_JPG : D3DX11_IFF_PNG, &saved, 0);
+#else
+				HRESULT hr = D3DX10SaveTextureToMemory(pSrcTexture, ps_r_screenshot_token == 0 ? D3DX10_IFF_JPG : D3DX10_IFF_PNG, &saved, 0);
+#endif
+				if (SUCCEEDED(hr))
+					memory_writer->w(saved->GetBufferPointer(), (u32)saved->GetBufferSize());
+				_RELEASE(saved);
+				break;
+			}
+
 			string64 t_stemp;
 			string_path buf;
 			xr_sprintf(buf, sizeof(buf), "ss_%s_%s_(%s).%s", Core.UserName, timestamp(t_stemp),
@@ -357,6 +372,17 @@ void CRender::ScreenshotImpl(ScreenshotMode mode, LPCSTR name, CMemoryWriter* me
 		break;
 	case IRender_interface::SM_NORMAL:
 		{
+			// in-memory captures are always jpg or png
+			if (memory_writer)
+			{
+				ID3DBlob* saved = 0;
+				hr = D3DXSaveSurfaceToFileInMemory(&saved, ps_r_screenshot_token == 0 ? D3DXIFF_JPG : D3DXIFF_PNG, pFB, 0, 0);
+				if (SUCCEEDED(hr))
+					memory_writer->w(saved->GetBufferPointer(), saved->GetBufferSize());
+				_RELEASE(saved);
+				break;
+			}
+
 			string64 t_stemp;
 			string_path buf;
 			xr_sprintf(buf, sizeof(buf), "ss_%s_%s_(%s).%s", Core.UserName, timestamp(t_stemp),
@@ -418,7 +444,7 @@ void CRender::Screenshot(ScreenshotMode mode, LPCSTR name)
 
 void CRender::Screenshot(ScreenshotMode mode, CMemoryWriter& memory_writer)
 {
-	if (mode != SM_FOR_MPSENDING)
+	if (mode != SM_FOR_MPSENDING && mode != SM_NORMAL)
 	{
 		Log("~ Not implemented screenshot mode...");
 		return;

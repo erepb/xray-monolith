@@ -21,6 +21,10 @@ void InitLog();
 void CloseLog();
 void XRCORE_API FlushLog();
 
+// thread-safe view of the in-memory log; line indices only grow
+size_t XRCORE_API LogLineCount();
+void XRCORE_API LogCopyLines(size_t from, size_t to, xr_vector<xr_string>& out);
+
 extern XRCORE_API xr_vector<xr_string> LogFile;
 extern XRCORE_API BOOL LogExecCB;
 
